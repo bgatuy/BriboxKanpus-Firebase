@@ -1,0 +1,7 @@
+{
+  "hosting": {
+    "site": "briboxkanpus-5f7db",
+    "public": ".",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"]
+  }
+}
