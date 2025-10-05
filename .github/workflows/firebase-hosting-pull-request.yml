@@ -12,12 +12,10 @@ jobs:
       - name: Prepare config.local.js
         run: |
           cat > config.local.js <<'EOF'
-          <script>
             window.__CONFIG = {
               GOOGLE_CLIENT_ID: "${{ secrets.GOOGLE_CLIENT_ID }}",
               GOOGLE_API_KEY: "${{ secrets.GOOGLE_API_KEY }}"
             };
-          </script>
           EOF
 
       - uses: FirebaseExtended/action-hosting-deploy@v0
