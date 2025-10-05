@@ -2,26 +2,32 @@
 <meta charset="utf-8" />
 <title>Google OAuth Return</title>
 <script>
-/* Ambil access_token dari fragment lalu kirim ke opener (popup) atau simpan dan kembali ke state */
 (function () {
   const hash = new URLSearchParams(location.hash.slice(1));
   const token = hash.get('access_token');
+  const expires = parseInt(hash.get('expires_in') || '3600', 10);
   const state = hash.get('state') || '/';
+
   if (!token) {
     document.body.textContent = 'OAuth gagal: access_token tidak ada.';
     return;
   }
+
+  // Simpan untuk resume di halaman lain (per-tab)
   try {
-    // Kembalikan token ke opener bila dibuka sebagai popup
+    const expAt = Date.now() + (expires * 1000);
+    sessionStorage.setItem('GDRV_AT', token);
+    sessionStorage.setItem('GDRV_EXP', String(expAt));
+  } catch (e) {}
+
+  try {
     if (window.opener && !window.opener.closed) {
-      window.opener.postMessage({ type: 'GDRV_TOKEN', access_token: token }, state.split('#')[0].split('?')[0]);
+      window.opener.postMessage({ type: 'GDRV_TOKEN', access_token: token, expires_in: expires }, state.split('#')[0].split('?')[0]);
       window.close();
       return;
     }
-  } catch(e) { /* noop */ }
+  } catch (e) { /* noop */ }
 
-  // Fallback: pakai sessionStorage lalu kembali ke halaman asal
-  sessionStorage.setItem('GDRV_AT', token);
   location.replace(state);
 })();
 </script>

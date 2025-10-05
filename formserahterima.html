@@ -120,6 +120,11 @@
     </main>
   </div>
 
+   <!-- jsPDF + AutoTable + pdf-lib -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+
   <!-- Prefs -->
   <script>
     if(localStorage.getItem('darkMode')==='true'){document.body.classList.add('dark-mode');}
@@ -139,6 +144,25 @@
   <!-- Drive core -->
   <script src="drive-sync.js?v=pure-oauth-2"></script>
   <script src="drive-queue.js" defer></script>
+
+  <script>
+document.addEventListener('DOMContentLoaded', async () => {
+  const bar = document.getElementById('driveConnectBar');
+  const btn = document.getElementById('btnConnectDrive');
+
+  // coba resume otomatis
+  const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+  if (ok) { bar?.remove(); } else if (bar) { bar.style.display = 'block'; }
+
+  btn?.addEventListener('click', async () => {
+    btn.disabled = true;
+    try { await DriveSync.signIn(); bar?.remove(); }
+    catch (e) { alert('Gagal connect Drive.\n' + (e?.message || e)); bar && (bar.style.display = 'block'); }
+    finally { btn.disabled = false; }
+  });
+});
+</script>
+
 
   <!-- Connect bar wiring -->
   <script>
