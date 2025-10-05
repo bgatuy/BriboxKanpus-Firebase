@@ -47,7 +47,10 @@
       <header class="dashboard-header">
         <button class="sidebar-toggle-btn" onclick="toggleSidebar()">☰</button>
         <h1><span class="material-icons">description</span> AppSheet</h1>
-        <button id="toggleModeBtn" onclick="toggleDarkMode()">🌙</button>
+        <div class="header-actions">
+          <button id="btnAuth" class="btn" type="button">Login Google</button>
+          <button id="toggleModeBtn" type="button" onclick="toggleDarkMode()" aria-pressed="false" aria-label="Toggle dark mode">🌙</button>
+        </div>
       </header>
 
       <!-- Drive connect hint (muncul hanya jika silent connect gagal) -->
