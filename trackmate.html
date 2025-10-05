@@ -226,50 +226,43 @@
     setTimeout(() => { clearInterval(t); r(); }, 7000); // fallback
   });
 
+
+  // ... kode whenGIS/whenGapi tetap ...
   document.addEventListener('DOMContentLoaded', async () => {
     const bar = document.getElementById('driveConnectBar');
     const btn = document.getElementById('btnConnectDrive');
 
-    // 1) SELALU tampilin bar dulu (override semua CSS yg mungkin nyembunyiin)
-    if (bar) {
-      bar.removeAttribute('hidden');
-      bar.style.display = 'block';
-      bar.style.visibility = 'visible';
-    }
+    // tampilkan bar dulu
+    if (bar) bar.style.display = 'block';
 
-    // 2) Coba silent connect setelah SDK siap
     try {
       await Promise.all([whenGIS, whenGapi]);
-      if (window.DriveSync && !DriveSync.isLogged()) {
-        await DriveSync.signInSilent();
-      }
-    } catch (_) { /* abaikan; user bisa klik tombol */ }
+      if (window.DriveSync && !DriveSync.isLogged()) await DriveSync.signInSilent();
+    } catch {}
 
-    // 3) Kalau ternyata sudah connect → sembunyikan bar
-    if (bar && window.DriveSync?.isLogged?.()) {
-      bar.remove(); // atau: bar.style.display = 'none';
-    }
+    if (bar && window.DriveSync?.isLogged?.()) bar.remove();
 
-    // 4) Tombol connect
     btn?.addEventListener('click', async () => {
       btn.disabled = true;
       try {
         await whenGIS; await whenGapi;
-        await DriveSync.signIn();         // munculin consent popup
+        await DriveSync.signIn();
         bar?.remove();
       } catch (e) {
-        alert('Gagal connect Drive.\n' + (e?.error_description || e?.message || ''));
-        if (bar) { bar.style.display = 'block'; bar.style.visibility = 'visible'; }
+        // ⬇️ tampilkan pesan detail, agar kita tahu penyebabnya
+        const msg = [e?.error, e?.error_description, e?.message, e?.toString?.()]
+          .filter(Boolean).join('\n');
+        alert('Gagal connect Drive.\n' + (msg || '(no details)'));
+        console.error('[Drive connect error]', e);
+        if (bar) bar.style.display = 'block';
       } finally {
         btn.disabled = false;
       }
     });
 
-    // 5) Init antrean upload
     window.DriveQueue?.init?.();
   });
 </script>
-
 
   <!-- === App logic === -->
   <script src="trackmate.js"></script>

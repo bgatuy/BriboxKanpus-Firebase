@@ -1,178 +1,258 @@
 ;(() => {
-  const CLIENT_ID = window.__CONFIG?.GOOGLE_CLIENT_ID || '';
-  const API_KEY   = window.__CONFIG?.GOOGLE_API_KEY   || '';
+  // ====== CONFIG ======
+  var CLIENT_ID = (window.__CONFIG && window.__CONFIG.GOOGLE_CLIENT_ID) || '';
+  var API_KEY   = (window.__CONFIG && window.__CONFIG.GOOGLE_API_KEY)   || '';
 
   if (!CLIENT_ID || !API_KEY) {
     console.warn('[DriveSync] CLIENT_ID/API_KEY belum diisi. Pastikan config.local.js ada.');
   }
 
-  const ROOT_FOLDER_NAME = 'Bribox Kanpus';
-  const SCOPES = 'https://www.googleapis.com/auth/drive.file';
-  const DISCOVERY_DOCS = ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'];
+  var ROOT_FOLDER_NAME = 'Bribox Kanpus';
+  var SCOPES = 'https://www.googleapis.com/auth/drive.file openid email profile';
+  var DISCOVERY_DOCS = ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'];
 
-  let tokenClient = null;
-  let accessToken = null;
-  let rootFolderId = null;
-  const subfolders = new Map();
+  // ====== STATE ======
+  var tokenClient = null;
+  var accessToken = null;
+  var rootFolderId = null;
+  var subfolders = new Map();
 
-  const $ = sel => document.querySelector(sel);
+  // ====== UTILS ======
+  function $(sel){ return document.querySelector(sel); }
   function setAuthUI(logged, profile){
-    const inBtn  = $('#btnSignIn'), outBtn = $('#btnSignOut'), who = $('#whoami');
+    var inBtn = $('#btnSignIn'), outBtn = $('#btnSignOut'), who = $('#whoami');
     if (inBtn)  inBtn.style.display  = logged ? 'none' : '';
     if (outBtn) outBtn.style.display = logged ? '' : 'none';
-    if (who) who.textContent = logged ? (profile?.email || 'Logged in') : '';
+    if (who) who.textContent = logged ? (profile && (profile.email || profile.name) || 'Logged in') : '';
   }
 
-  async function gapiInit(){
-    return new Promise((resolve, reject) => {
-      if (!window.gapi) { reject(new Error('gapi belum dimuat')); return; }
-      gapi.load('client', async () => {
-        try {
-          await gapi.client.init({ apiKey: API_KEY, discoveryDocs: DISCOVERY_DOCS });
-          resolve();
-        } catch (e) { reject(e); }
+  function waitGapi(){
+    return new Promise(function(res, rej){
+      if (window.gapi && gapi.load) return res();
+      var t = setInterval(function(){
+        if (window.gapi && gapi.load){ clearInterval(t); res(); }
+      }, 50);
+      setTimeout(function(){ clearInterval(t); rej(new Error('gapi tidak pernah siap')); }, 7000);
+    });
+  }
+  function waitGIS(){
+    return new Promise(function(res, rej){
+      if (window.google && google.accounts && google.accounts.oauth2) return res();
+      var t = setInterval(function(){
+        if (window.google && google.accounts && google.accounts.oauth2){ clearInterval(t); res(); }
+      }, 50);
+      setTimeout(function(){ clearInterval(t); rej(new Error('GIS tidak pernah siap')); }, 7000);
+    });
+  }
+
+  function gapiInit(){
+    return waitGapi().then(function(){
+      return new Promise(function(resolve, reject){
+        gapi.load('client', function(){
+          gapi.client.init({ apiKey: API_KEY, discoveryDocs: DISCOVERY_DOCS })
+            .then(resolve, reject);
+        });
       });
     });
   }
 
-  async function ensureInit(){
-    if (!tokenClient){
-      await gapiInit();
-      if (!window.google?.accounts?.oauth2) throw new Error('Google Identity Services belum siap.');
-      tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: SCOPES,
-        callback: (resp) => { accessToken = resp?.access_token || null; }
-      });
+  function ensureTokenClient(){
+    if (!(window.google && google.accounts && google.accounts.oauth2)){
+      throw new Error('Google Identity Services belum siap.');
     }
+    if (tokenClient) return tokenClient;
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: CLIENT_ID,
+      scope: SCOPES,
+      callback: function(){} // di-override per request
+    });
+    return tokenClient;
   }
 
-  async function signIn(){
-    await ensureInit();
-    return new Promise((resolve, reject) => {
-      tokenClient.callback = async (resp) => {
-        if (resp.error) { reject(resp); return; }
-        accessToken = resp.access_token;
-        try {
-          const prof = await getProfile().catch(() => null);
-          setAuthUI(true, prof);
-          await ensureRootFolder();
-          resolve(resp);
-        } catch (e) { reject(e); }
-      };
-      tokenClient.requestAccessToken({ prompt: 'consent' });
+  function ensureInit(){
+    if (!CLIENT_ID) throw new Error('Missing GOOGLE_CLIENT_ID');
+    if (!API_KEY) throw new Error('Missing GOOGLE_API_KEY');
+    return gapiInit().then(function(){ ensureTokenClient(); });
+  }
+
+  // ====== AUTH ======
+  function signIn(){
+    return ensureInit().then(function(){
+      return new Promise(function(resolve, reject){
+        tokenClient.callback = function(resp){
+          if (!resp || resp.error || !resp.access_token){ reject(resp || new Error('Token kosong')); return; }
+          accessToken = resp.access_token;
+          gapi.client.setToken({ access_token: accessToken }); // penting
+          Promise.resolve()
+            .then(getProfile).catch(function(){ return null; })
+            .then(function(prof){
+              setAuthUI(true, prof);
+              return ensureRootFolder();
+            })
+            .then(function(){ resolve(resp); })
+            .catch(reject);
+        };
+        try { tokenClient.requestAccessToken({ prompt: 'consent' }); }
+        catch(e){ reject(e); }
+      });
     });
   }
 
-  async function signInSilent(){
-    await ensureInit();
-    return new Promise((resolve, reject) => {
-      tokenClient.callback = async (resp) => {
-        if (resp?.error || !resp?.access_token) { reject(new Error('Silent token gagal')); return; }
-        accessToken = resp.access_token;
-        try {
-          const prof = await getProfile().catch(() => null);
-          setAuthUI(true, prof);
-          await ensureRootFolder();
-          resolve(resp);
-        } catch (e) { reject(e); }
-      };
-      tokenClient.requestAccessToken({ prompt: 'none' });
+  function signInSilent(){
+    return ensureInit().then(function(){
+      return new Promise(function(resolve, reject){
+        tokenClient.callback = function(resp){
+          if (!resp || resp.error || !resp.access_token){ reject(new Error((resp && resp.error_description) || 'Silent token gagal')); return; }
+          accessToken = resp.access_token;
+          gapi.client.setToken({ access_token: accessToken }); // penting
+          Promise.resolve()
+            .then(getProfile).catch(function(){ return null; })
+            .then(function(prof){
+              setAuthUI(true, prof);
+              return ensureRootFolder();
+            })
+            .then(function(){ resolve(resp); })
+            .catch(reject);
+        };
+        try { tokenClient.requestAccessToken({ prompt: 'none' }); }
+        catch(e){ reject(e); }
+      });
     });
   }
 
   function signOut(){
     if (!accessToken) return;
-    try { google.accounts.oauth2.revoke(accessToken); } catch {}
+    try { google.accounts.oauth2.revoke(accessToken); } catch(e){}
     accessToken = null;
+    gapi.client.setToken(null);
     rootFolderId = null;
     subfolders.clear();
     setAuthUI(false);
   }
 
-  async function getProfile(){
-    if (!accessToken) throw new Error('Belum login Drive.');
-    const res = await gapi.client.request({ path: 'https://www.googleapis.com/oauth2/v1/userinfo?alt=json' });
-    return res.result;
+  function getProfile(){
+    if (!accessToken) return Promise.reject(new Error('Belum login Drive.'));
+    return gapi.client.request({
+      path: 'https://www.googleapis.com/oauth2/v1/userinfo',
+      params: { alt: 'json' }
+    }).then(function(res){ return res.result; });
   }
 
-  async function queryDrive(q, fields='files(id,name,mimeType,parents,createdTime,modifiedTime,size)'){
-    if (!accessToken) throw new Error('Belum login Drive.');
-    const res = await gapi.client.drive.files.list({
-      q, fields: `files(${fields})`, spaces:'drive', pageSize:1000
+  // ====== DRIVE HELPERS ======
+  function queryDrive(q, fields){
+    if (!accessToken) return Promise.reject(new Error('Belum login Drive.'));
+    var f = fields || 'files(id,name,mimeType,parents,createdTime,modifiedTime,size)';
+    return gapi.client.drive.files.list({
+      q: q, spaces: 'drive', pageSize: 1000, fields: 'files(' + f + ')'
+    }).then(function(res){ return res.result.files || []; });
+  }
+
+  function ensureRootFolder(){
+    if (rootFolderId) return Promise.resolve(rootFolderId);
+    var esc = ROOT_FOLDER_NAME.replace(/'/g, "\\'");
+    return queryDrive("name='" + esc + "' and mimeType='application/vnd.google-apps.folder' and trashed=false")
+      .then(function(list){
+        if (list.length){
+          rootFolderId = list[0].id;
+          return rootFolderId;
+        }
+        return gapi.client.drive.files.create({
+          resource: { name: ROOT_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' },
+          fields: 'id'
+        }).then(function(res){
+          rootFolderId = res.result.id;
+          return rootFolderId;
+        });
+      });
+  }
+
+  function ensureSubfolder(mod){
+    mod = String(mod || '').trim();
+    if (!mod) return Promise.resolve(null);
+    if (subfolders.has(mod)) return Promise.resolve(subfolders.get(mod));
+    return ensureRootFolder().then(function(parent){
+      var esc = mod.replace(/'/g, "\\'");
+      return queryDrive("'" + parent + "' in parents and trashed=false and mimeType='application/vnd.google-apps.folder' and name='" + esc + "'")
+        .then(function(list){
+          if (list.length){ subfolders.set(mod, list[0].id); return list[0].id; }
+          return gapi.client.drive.files.create({
+            resource: { name: mod, parents: [parent], mimeType: 'application/vnd.google-apps.folder' },
+            fields: 'id'
+          }).then(function(res){
+            subfolders.set(mod, res.result.id);
+            return res.result.id;
+          });
+        });
     });
-    return res.result.files || [];
   }
 
-  async function ensureRootFolder(){
-    if (rootFolderId) return rootFolderId;
-    const esc = ROOT_FOLDER_NAME.replace(/'/g, "\\'");
-    const exist = await queryDrive(`name='${esc}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-    if (exist.length){ rootFolderId = exist[0].id; return rootFolderId; }
-    const res = await gapi.client.drive.files.create({
-      resource:{ name: ROOT_FOLDER_NAME, mimeType:'application/vnd.google-apps.folder' }, fields:'id'
+  function uploadPdf(file, contentHash, moduleName){
+    if (!file || file.type !== 'application/pdf') return Promise.reject(new Error('Bukan PDF'));
+
+    var parentPromise = moduleName ? ensureSubfolder(moduleName) : ensureRootFolder();
+
+    return parentPromise.then(function(parent){
+      var safeName = (contentHash || Date.now()) + '__' + file.name.replace(/[^\w.\- ()]/g,'_');
+      var metadata = { name: safeName, mimeType: 'application/pdf', parents: [parent] };
+
+      var boundary = '-------314159265358979323846';
+      var delimiter  = '\r\n--' + boundary + '\r\n';
+      var closeDelim = '\r\n--' + boundary + '--';
+
+      var metaPart = delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata);
+
+      return file.arrayBuffer().then(function(buf){
+        // base64 encode
+        var bytes = new Uint8Array(buf);
+        var binary = '';
+        var chunk = 0x8000;
+        for (var i = 0; i < bytes.length; i += chunk) {
+          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+        }
+        var base64Data = btoa(binary);
+
+        var filePart = delimiter + 'Content-Type: application/pdf\r\nContent-Transfer-Encoding: base64\r\n\r\n' + base64Data;
+        var body = metaPart + filePart + closeDelim;
+
+        return gapi.client.request({
+          path: '/upload/drive/v3/files',
+          method: 'POST',
+          params: { uploadType: 'multipart' },
+          headers: { 'Content-Type': 'multipart/related; boundary=' + boundary },
+          body: body
+        }).then(function(res){
+          return { id: res.result.id, name: safeName };
+        });
+      });
     });
-    rootFolderId = res.result.id;
-    return rootFolderId;
   }
 
-  async function ensureSubfolder(mod){
-    mod = String(mod||'').trim();
-    if (!mod) return null;
-    if (subfolders.has(mod)) return subfolders.get(mod);
-    const parent = await ensureRootFolder();
-    const esc = mod.replace(/'/g, "\\'");
-    const exist = await queryDrive(`'${parent}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder' and name='${esc}'`);
-    if (exist.length){ subfolders.set(mod, exist[0].id); return exist[0].id; }
-    const res = await gapi.client.drive.files.create({
-      resource:{ name: mod, parents:[parent], mimeType:'application/vnd.google-apps.folder' }, fields:'id'
+  function findByHashPrefix(hash, moduleName){
+    var parentPromise = moduleName ? ensureSubfolder(moduleName) : ensureRootFolder();
+    return parentPromise.then(function(parent){
+      var esc = String(hash || '').replace(/'/g, "\\'");
+      return queryDrive("'" + parent + "' in parents and trashed=false and name contains '" + esc + "'")
+        .then(function(files){
+          var prefix = String(hash || '') + '__';
+          for (var i=0;i<files.length;i++){
+            if ((files[i].name || '').indexOf(prefix) === 0) return files[i];
+          }
+          return null;
+        });
     });
-    subfolders.set(mod, res.result.id);
-    return res.result.id;
   }
 
-  async function uploadPdf(file, contentHash, moduleName){
-    if (!file || file.type !== 'application/pdf') throw new Error('Bukan PDF');
-    const parent = moduleName ? (await ensureSubfolder(moduleName)) : (await ensureRootFolder());
-
-    const safeName = `${contentHash || Date.now()}__${file.name.replace(/[^\w.\- ()]/g,'_')}`;
-    const metadata = { name: safeName, mimeType: 'application/pdf', parents: [parent] };
-
-    const boundary = '-------314159265358979323846';
-    const delimiter = `\\r\\n--${boundary}\\r\\n`;
-    const closeDelim = `\\r\\n--${boundary}--`;
-
-    const metaPart = `${delimiter}Content-Type: application/json; charset=UTF-8\\r\\n\\r\\n${JSON.stringify(metadata)}`;
-    const buf = await file.arrayBuffer();
-    const base64Data = btoa(String.fromCharCode(...new Uint8Array(buf)));
-    const filePart = `${delimiter}Content-Type: application/pdf\\r\\nContent-Transfer-Encoding: base64\\r\\n\\r\\n${base64Data}`;
-    const body = metaPart + filePart + closeDelim;
-
-    const res = await gapi.client.request({
-      path: '/upload/drive/v3/files',
-      method: 'POST',
-      params: { uploadType: 'multipart' },
-      headers: { 'Content-Type': `multipart/related; boundary="${boundary}"` },
-      body
-    });
-    return { id: res.result.id, name: safeName };
-  }
-
-  async function findByHashPrefix(hash, moduleName){
-    const parent = moduleName ? (await ensureSubfolder(moduleName)) : (await ensureRootFolder());
-    const files = await queryDrive(`'${parent}' in parents and trashed=false and name contains '${hash}'`);
-    const prefix = `${hash}__`;
-    return files.find(f => f.name.startsWith(prefix)) || null;
-  }
-
+  // ====== PUBLIC API ======
   window.DriveSync = {
-    signIn, signInSilent, signOut,
-    isLogged: () => !!accessToken,
-    getProfile,
+    signIn: signIn,
+    signInSilent: signInSilent,
+    signOut: signOut,
+    isLogged: function(){ return !!accessToken; },
+    getProfile: getProfile,
     ensureFolder: ensureRootFolder,
-    uploadPdf,
-    findByHashPrefix
+    uploadPdf: uploadPdf,
+    findByHashPrefix: findByHashPrefix
   };
 
-  document.addEventListener('DOMContentLoaded', ()=> setAuthUI(false));
+  document.addEventListener('DOMContentLoaded', function(){ setAuthUI(false); });
 })();
