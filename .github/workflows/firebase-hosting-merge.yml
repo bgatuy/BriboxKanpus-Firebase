@@ -1,0 +1,29 @@
+name: Deploy to Firebase Hosting on merge
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Buat config.local.js dari GitHub Secrets
+      - name: Prepare config.local.js
+        run: |
+          cat > config.local.js <<'EOF'
+          <script>
+            window.__CONFIG = {
+              GOOGLE_CLIENT_ID: "${{ secrets.GOOGLE_CLIENT_ID }}",
+              GOOGLE_API_KEY: "${{ secrets.GOOGLE_API_KEY }}"
+            };
+          </script>
+          EOF
+
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BRIBOXKANPUS_5F7DB }}
+          channelId: live
+          projectId: briboxkanpus-5f7db   # <- pakai project ID kamu (lihat di Firebase console)
