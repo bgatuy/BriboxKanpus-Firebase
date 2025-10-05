@@ -9,27 +9,26 @@
 
   const OAUTH_SCOPE = [
     'https://www.googleapis.com/auth/drive.file',
-    'openid', 'email', 'profile'
+    'openid','email','profile'
   ].join(' ');
-  const OAUTH_REDIRECT = location.origin + '/oauth-return.html';
+  // Jika pakai redirect page sendiri, pastikan file oauth-return.html mengirim postMessage {type:'GDRV_TOKEN', access_token, expires_in}
+  const OAUTH_REDIRECT   = location.origin + '/oauth-return.html';
   const ROOT_FOLDER_NAME = 'Bribox Kanpus';
 
   // ===== STATE =====
-  let ACCESS_TOKEN   = null;
-  let rootFolderId   = null;
-  const subfolders   = new Map();
-  let cachedProfile  = null;
+  let ACCESS_TOKEN  = null;
+  let rootFolderId  = null;
+  let cachedProfile = null;
 
   // ===== Persist token per-tab =====
   const STORE_KEY = 'GDRV_AT';
   const STORE_EXP = 'GDRV_EXP';
-
   function saveToken(token, expiresInSec) {
     try {
       const expAt = Date.now() + ((expiresInSec || 3600) * 1000);
       sessionStorage.setItem(STORE_KEY, token);
       sessionStorage.setItem(STORE_EXP, String(expAt));
-    } catch (_) {}
+    } catch {}
   }
   function loadTokenIfValid() {
     try {
@@ -37,14 +36,12 @@
       const exp = parseInt(sessionStorage.getItem(STORE_EXP) || '0', 10);
       if (!t || !exp || Date.now() > exp) return null;
       return t;
-    } catch(_) { return null; }
+    } catch { return null; }
   }
 
-  // ===== Cross-page sync (tanpa refresh) =====
+  // ===== Cross-page sync =====
   const bc = ('BroadcastChannel' in window) ? new BroadcastChannel('bribox-drive') : null;
-  function broadcast(status) {
-    try { bc && bc.postMessage({ type: 'drive-auth', status }); } catch(_) {}
-  }
+  const broadcast = (status) => { try { bc?.postMessage({ type:'drive-auth', status }); } catch {} };
 
   // ===== UI helpers (opsional) =====
   const $ = s => document.querySelector(s);
@@ -52,9 +49,9 @@
     const bar  = $('#driveConnectBar');
     const btn  = $('#btnConnectDrive');
     const who  = $('#whoami');
-    if (bar)  bar.style.display = logged ? 'none' : '';
-    if (btn)  btn.disabled = false;
-    if (who)  who.textContent = logged ? (profile?.email || profile?.name || 'Logged in') : '';
+    if (bar) bar.style.display = logged ? 'none' : '';
+    if (btn) btn.disabled = false;
+    if (who) who.textContent = logged ? (profile?.email || profile?.name || 'Logged in') : '';
   }
 
   // ===== OAUTH (Implicit Flow manual) =====
@@ -70,37 +67,31 @@
     });
     return 'https://accounts.google.com/o/oauth2/v2/auth?' + p.toString();
   }
-
   function openCenteredPopup(url, title, w=520, h=620){
-    const dualScreenLeft = window.screenLeft !== undefined ? window.screenLeft : window.screenX;
-    const dualScreenTop  = window.screenTop  !== undefined ? window.screenTop  : window.screenY;
+    const dualScreenLeft = (window.screenLeft ?? window.screenX);
+    const dualScreenTop  = (window.screenTop  ?? window.screenY);
     const width  = window.innerWidth  || document.documentElement.clientWidth  || screen.width;
     const height = window.innerHeight || document.documentElement.clientHeight || screen.height;
     const left = ((width - w) / 2) + dualScreenLeft;
     const top  = ((height - h) / 2) + dualScreenTop;
-    const features = `scrollbars=yes,resizable=yes,width=${w},height=${h},top=${top},left=${left}`;
-    return window.open(url, title, features);
+    return window.open(url, title, `scrollbars=yes,resizable=yes,width=${w},height=${h},top=${top},left=${left}`);
   }
 
   async function signIn(){
-    // 1) Flow redirect penuh (oauth-return sudah menyimpan token)
-    const pending = sessionStorage.getItem('GDRV_AT');
+    // Kalau oauth-return sudah menyimpan token (STORE_KEY) → ambil
+    const pending = sessionStorage.getItem(STORE_KEY);
     if (pending) {
-      sessionStorage.removeItem('GDRV_AT');
+      sessionStorage.removeItem(STORE_KEY);
       ACCESS_TOKEN = pending;
       await afterLogin();
       broadcast('in');
       return;
     }
-    // 2) Popup flow
+    // Popup flow
     return new Promise((resolve, reject) => {
       const url = buildAuthUrl(location.href);
       const pop = openCenteredPopup(url, 'Google Login');
-      if (!pop) { // popup diblok → redirect penuh
-        location.assign(url);
-        reject(new Error('Popup diblok; melakukan redirect.'));
-        return;
-      }
+      if (!pop) { location.assign(url); return reject(new Error('Popup diblok; redirect.')); }
       const timer = setInterval(() => {
         if (pop.closed) { clearInterval(timer); reject(new Error('Popup ditutup sebelum login.')); }
       }, 400);
@@ -111,8 +102,8 @@
           clearInterval(timer);
           pop.close();
           ACCESS_TOKEN = ev.data.access_token || null;
-          if (!ACCESS_TOKEN) { reject(new Error('No access_token from OAuth.')); return; }
-          saveToken(ACCESS_TOKEN, Number(ev.data.expires_in || 3600)); // persist utk auto-resume
+          if (!ACCESS_TOKEN) return reject(new Error('No access_token from OAuth.'));
+          saveToken(ACCESS_TOKEN, Number(ev.data.expires_in || 3600));
           afterLogin().then(() => { broadcast('in'); resolve(); }).catch(reject);
         } catch(e){ clearInterval(timer); reject(e); }
       }
@@ -129,14 +120,9 @@
         }).catch(()=>{});
       }
     } finally {
-      ACCESS_TOKEN = null; cachedProfile = null;
-      rootFolderId = null; subfolders.clear();
-      try {
-        sessionStorage.removeItem(STORE_KEY);
-        sessionStorage.removeItem(STORE_EXP);
-      } catch(_) {}
-      setAuthUI(false);
-      broadcast('out');
+      ACCESS_TOKEN = null; cachedProfile = null; rootFolderId = null;
+      try { sessionStorage.removeItem(STORE_KEY); sessionStorage.removeItem(STORE_EXP); } catch {}
+      setAuthUI(false); broadcast('out');
     }
   }
 
@@ -150,10 +136,10 @@
   }
 
   // ===== Fetch helpers =====
-  function authHeaders(extra){
+  const authHeaders = (extra) => {
     if (!ACCESS_TOKEN) throw new Error('Belum login Google Drive.');
     return Object.assign({ 'Authorization': 'Bearer ' + ACCESS_TOKEN }, extra || {});
-  }
+  };
   async function httpJSON(url, opts){
     const res = await fetch(url, Object.assign({ headers: authHeaders({ 'Accept': 'application/json' }) }, opts));
     if (!res.ok) {
@@ -163,30 +149,24 @@
     return res.json();
   }
 
-  // ===== Setelah login: ambil profile & pastikan root folder =====
+  // ===== Setelah login =====
   async function afterLogin(){
-    try {
-      const prof = await httpJSON('https://openidconnect.googleapis.com/v1/userinfo');
-      cachedProfile = prof;
-    } catch(e){
-      console.warn('userinfo error:', e);
-      cachedProfile = null;
-    }
+    try { cachedProfile = await httpJSON('https://openidconnect.googleapis.com/v1/userinfo'); }
+    catch(e){ console.warn('userinfo error:', e); cachedProfile = null; }
     setAuthUI(true, cachedProfile);
     await ensureRootFolder();
   }
 
-  // ===== Drive ops (REST) =====
+  // ===== Drive ops =====
   async function queryDrive(q, fields){
     const p = new URLSearchParams({
-      q, spaces: 'drive', pageSize: '1000',
-      fields: 'files(' + (fields || 'id,name,mimeType,parents,createdTime,modifiedTime,size') + ')'
+      q, spaces:'drive', pageSize:'1000',
+      fields:'files(' + (fields || 'id,name,mimeType,parents,createdTime,modifiedTime,size') + ')'
     });
     const url = 'https://www.googleapis.com/drive/v3/files?' + p.toString();
     const res = await fetch(url, { headers: authHeaders() });
     if (!res.ok) throw new Error('Drive list failed: ' + res.status);
-    const data = await res.json();
-    return data.files || [];
+    return (await res.json()).files || [];
   }
 
   async function ensureRootFolder(){
@@ -200,64 +180,46 @@
       body: JSON.stringify({ name: ROOT_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' })
     });
     if (!res.ok) throw new Error('Create folder failed: ' + res.status);
-    const data = await res.json();
-    rootFolderId = data.id;
+    rootFolderId = (await res.json()).id;
     return rootFolderId;
   }
 
-  async function ensureSubfolder(mod){
-    mod = String(mod || '').trim();
-    if (!mod) return ensureRootFolder();
-    if (subfolders.has(mod)) return subfolders.get(mod);
-    const parent = await ensureRootFolder();
-    const esc = mod.replace(/'/g, "\\'");
-    const list = await queryDrive(`'${parent}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder' and name='${esc}'`);
-    if (list.length){ subfolders.set(mod, list[0].id); return list[0].id; }
-    const res = await fetch('https://www.googleapis.com/drive/v3/files', {
-      method: 'POST',
-      headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ name: mod, parents: [parent], mimeType: 'application/vnd.google-apps.folder' })
-    });
-    if (!res.ok) throw new Error('Create subfolder failed: ' + res.status);
-    const data = await res.json();
-    subfolders.set(mod, data.id);
-    return data.id;
-  }
-
+  // ===== Upload PDF (SELALU ke root, NAMA ASLI) =====
   /**
-   * Upload PDF ke Drive.
-   * @param {File} file - PDF.
-   * @param {string|null} contentHash - Optional prefix hash (untuk nama panjang). Abaikan jika simpleName=true.
-   * @param {string|null} moduleName - Nama subfolder. null/'' => root Bribox Kanpus.
-   * @param {object} opts - { simpleName:boolean } => pakai nama file asli (tanpa hash).
+   * @param {File} file
+   * @param {string|null} _contentHash (diabaikan)
+   * @param {string|null} _moduleName  (diabaikan)
+   * @param {object} opts { simpleName?:boolean } -> default true
    * @returns {Promise<{id:string,name:string}>}
    */
-  async function uploadPdf(file, contentHash, moduleName, opts = {}) {
+  async function uploadPdf(file, _contentHash, _moduleName, opts = {}) {
     if (!file || file.type !== 'application/pdf') throw new Error('Bukan PDF');
 
-    const simpleName = !!opts.simpleName;
-    const parent = moduleName ? await ensureSubfolder(moduleName)
-                              : await ensureRootFolder();
+    await ensureRootFolder();                 // pastikan root ada
+    const parent = rootFolderId;              // TANPA sub-folder
+    const simpleName = (opts.simpleName !== false); // default TRUE (nama asli)
 
-    let safeName = file.name.replace(/[^\w.\- ()]/g, '_');
-    if (!simpleName) {
-      const prefix = (contentHash || Date.now()) + '__';
-      safeName = prefix + safeName;
-    }
+    // nama aman: buang karakter ilegal & batasi panjang
+    let safeName = (file.name || 'document.pdf')
+      .replace(/[<>:"/\\|?*\u0000-\u001F]+/g, '_')
+      .slice(0, 250);
 
-    const metadata = { name: safeName, mimeType: 'application/pdf', parents: [parent] };
+    if (!simpleName) safeName = safeName; // no-op; tetap nama asli
 
-    // multipart/related upload
-    const boundary = '-------314159265358979323846';
+    const metadata = { name: safeName, mimeType:'application/pdf', parents:[parent] };
+
+    // multipart/related
+    const boundary  = '-------314159265358979323846';
     const delimiter = '\r\n--' + boundary + '\r\n';
-    const closeDelim = '\r\n--' + boundary + '--';
-    const metaPart = delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata);
+    const closeDelim= '\r\n--' + boundary + '--';
+    const metaPart  = delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata);
 
-    const buf = await file.arrayBuffer();
-    const bytes = new Uint8Array(buf);
-    let bin=''; const chunk=0x8000;
-    for (let i=0;i<bytes.length;i+=chunk){ bin += String.fromCharCode.apply(null, bytes.subarray(i,i+chunk)); }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    // btoa aman via chunking
+    let bin = ''; const CH = 0x8000;
+    for (let i = 0; i < bytes.length; i += CH) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
     const base64 = btoa(bin);
+
     const filePart = delimiter + 'Content-Type: application/pdf\r\nContent-Transfer-Encoding: base64\r\n\r\n' + base64;
     const body = metaPart + filePart + closeDelim;
 
@@ -271,13 +233,65 @@
     return { id: data.id, name: safeName };
   }
 
-  async function findByHashPrefix(hash, moduleName){
-    const parent = moduleName ? await ensureSubfolder(moduleName) : await ensureRootFolder();
-    const esc = String(hash || '').replace(/'/g, "\\'");
-    const files = await queryDrive(`'${parent}' in parents and trashed=false and name contains '${esc}'`);
-    const prefix = String(hash || '') + '__';
-    return files.find(f => (f.name || '').startsWith(prefix)) || null;
+  // ===== JSON helpers (mirror lintas device) =====
+  async function findFileInRootByName(name){
+    const parent = await ensureRootFolder();
+    const esc = String(name).replace(/'/g, "\\'");
+    const list = await queryDrive(`'${parent}' in parents and trashed=false and name='${esc}'`, 'id,name');
+    return list[0] || null;
   }
+  async function downloadFileText(fileId){
+    const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+    const res = await fetch(url, { headers: authHeaders() });
+    if (!res.ok) throw new Error('Download failed: ' + res.status);
+    return await res.text();
+  }
+  async function createJsonInRoot(name, text){
+    const parent = await ensureRootFolder();
+    const boundary  = '-------314159265358979323846';
+    const delimiter = '\r\n--' + boundary + '\r\n';
+    const close     = '\r\n--' + boundary + '--';
+    const metaPart  = delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+                      JSON.stringify({ name, mimeType: 'application/json', parents: [parent] });
+    const dataPart  = delimiter + 'Content-Type: application/json\r\n\r\n' + (text ?? '{}');
+    const body      = metaPart + dataPart + close;
+
+    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'multipart/related; boundary=' + boundary }),
+      body
+    });
+    if (!res.ok) throw new Error('Create JSON failed: ' + res.status);
+    return (await res.json()).id;
+  }
+  async function updateFileText(fileId, text, mime='application/json'){
+    const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
+      method: 'PATCH',
+      headers: authHeaders({ 'Content-Type': mime }),
+      body: text ?? ''
+    });
+    if (!res.ok) throw new Error('Update JSON failed: ' + res.status);
+    return true;
+  }
+  /** Dapatkan JSON by name (root). Return: {id, data} atau null kalau belum ada */
+  async function getJson(name){
+    const f = await findFileInRootByName(name);
+    if (!f) return null;
+    const txt = await downloadFileText(f.id).catch(()=>'null');
+    let data = null; try { data = JSON.parse(txt); } catch {}
+    return { id: f.id, data };
+  }
+  /** Simpan (create/update) JSON di root. Return: {id} */
+  async function putJson(name, obj){
+    const txt = JSON.stringify(obj ?? {}, null, 0);
+    const f = await findFileInRootByName(name);
+    if (f) { await updateFileText(f.id, txt); return { id: f.id }; }
+    const id = await createJsonInRoot(name, txt);
+    return { id };
+  }
+
+  // kompatibilitas lama (tidak dipakai lagi krn tdk ada prefix/hash & subfolder)
+  async function findByHashPrefix(){ return null; }
 
   // ===== PUBLIC API =====
   window.DriveSync = Object.assign({}, window.DriveSync, {
@@ -286,24 +300,26 @@
     getProfile: async () => {
       if (!ACCESS_TOKEN) throw new Error('Belum login');
       if (cachedProfile) return cachedProfile;
-      const prof = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: authHeaders() }).then(r=>r.json());
-      cachedProfile = prof; return prof;
+      cachedProfile = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: authHeaders() }).then(r=>r.json());
+      return cachedProfile;
     },
     ensureFolder: ensureRootFolder,
-    uploadPdf, findByHashPrefix
+    uploadPdf,
+    // JSON mirror:
+    getJson, putJson,
+    // Legacy:
+    findByHashPrefix
   });
 
-  // ===== Optional: enable button wiring kalau ada =====
+  // ===== Optional: wiring tombol connect kalau ada =====
   document.addEventListener('DOMContentLoaded', () => {
     setAuthUI(false);
     const btn = $('#btnConnectDrive');
-    if (btn) {
-      btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        try { await signIn(); }
-        catch (e) { alert('Gagal connect Drive.\n' + (e?.message || e)); }
-        finally { btn.disabled = false; }
-      });
-    }
+    btn?.addEventListener('click', async () => {
+      btn.disabled = true;
+      try { await signIn(); }
+      catch (e) { alert('Gagal connect Drive.\n' + (e?.message || e)); }
+      finally { btn.disabled = false; }
+    });
   });
 })();

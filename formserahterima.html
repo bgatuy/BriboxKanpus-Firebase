@@ -37,10 +37,10 @@
     <main class="main">
       <header class="dashboard-header">
         <button class="sidebar-toggle-btn" onclick="toggleSidebar()">☰</button>
-        <h1><span class="material-icons">receipt_long</span> Form Serah Terima</h1>
+        <h1><span class="material-icons" aria-hidden="true">receipt_long</span> Form Serah Terima</h1>
         <div class="header-actions">
           <button id="btnAuth" class="btn" type="button">Login Google</button>
-          <button id="toggleModeBtn" onclick="toggleDarkMode()">🌙</button>
+          <button id="toggleModeBtn" onclick="toggleDarkMode()" aria-pressed="false" aria-label="Toggle dark mode">🌙</button>
         </div>
       </header>
 
@@ -120,7 +120,7 @@
     </main>
   </div>
 
-   <!-- jsPDF + AutoTable + pdf-lib -->
+  <!-- jsPDF + AutoTable + pdf-lib -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
   <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
@@ -128,14 +128,10 @@
   <!-- Prefs -->
   <script>
     if(localStorage.getItem('darkMode')==='true'){document.body.classList.add('dark-mode');}
-    function toggleDarkMode(){const d=document.body.classList.toggle('dark-mode');localStorage.setItem('darkMode',d);document.getElementById('toggleModeBtn').textContent=d?'☀️':'🌙';}
-    function toggleSidebar(){document.querySelector('.sidebar').classList.toggle('hidden');}
+    document.addEventListener('DOMContentLoaded',()=>{const b=document.getElementById('toggleModeBtn');if(b){const d=document.body.classList.contains('dark-mode');b.textContent=d?'☀️':'🌙';b.setAttribute('aria-pressed',String(d));}});
+    function toggleDarkMode(){const d=document.body.classList.toggle('dark-mode');localStorage.setItem('darkMode',d);const b=document.getElementById('toggleModeBtn');if(b){b.textContent=d?'☀️':'🌙';b.setAttribute('aria-pressed',String(d));}}
+    function toggleSidebar(){document.querySelector('.sidebar')?.classList.toggle('hidden');}
   </script>
-
-  <!-- PDF libs -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
-  <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
 
   <!-- Auth -->
   <script defer src="auth.js"></script>
@@ -145,58 +141,72 @@
   <script src="drive-sync.js?v=pure-oauth-2"></script>
   <script src="drive-queue.js" defer></script>
 
+  <!-- Connect bar (auto-resume + broadcast) -->
   <script>
-document.addEventListener('DOMContentLoaded', async () => {
-  const bar = document.getElementById('driveConnectBar');
-  const btn = document.getElementById('btnConnectDrive');
+  document.addEventListener('DOMContentLoaded', async () => {
+    // Init queue di halaman FST juga
+    try { window.DriveQueue?.init?.(); } catch {}
 
-  // coba resume otomatis
-  const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
-  if (ok) { bar?.remove(); } else if (bar) { bar.style.display = 'block'; }
+    const bar = document.getElementById('driveConnectBar');
+    const btn = document.getElementById('btnConnectDrive');
 
-  btn?.addEventListener('click', async () => {
-    btn.disabled = true;
-    try { await DriveSync.signIn(); bar?.remove(); }
-    catch (e) { alert('Gagal connect Drive.\n' + (e?.message || e)); bar && (bar.style.display = 'block'); }
-    finally { btn.disabled = false; }
-  });
-});
-</script>
+    // 1) coba resume token
+    const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+    if (ok) { bar?.remove(); } else if (bar) { bar.style.display = 'block'; }
 
-
-  <!-- Connect bar wiring -->
-  <script>
-    document.addEventListener('DOMContentLoaded',()=>{
-      const bar=document.getElementById('driveConnectBar');
-      const btn=document.getElementById('btnConnectDrive');
-      if(bar) bar.style.display='block';
-      btn?.addEventListener('click',async()=>{
-        btn.disabled=true;
-        try{ await DriveSync.signIn(); bar?.remove(); }
-        catch(e){ alert('Gagal connect Drive.\n'+(e?.message||e)); if(bar) bar.style.display='block';}
-        finally{ btn.disabled=false; }
-      });
+    // 2) dengarkan broadcast dari halaman lain
+    const bc = ('BroadcastChannel' in window) ? new BroadcastChannel('bribox-drive') : null;
+    bc?.addEventListener('message', (ev) => {
+      if (ev.data?.type !== 'drive-auth') return;
+      if (ev.data.status === 'in')  bar?.remove();
+      if (ev.data.status === 'out') { if (bar) bar.style.display = 'block'; }
     });
+
+    // 3) tombol connect
+    btn?.addEventListener('click', async () => {
+      btn.disabled = true;
+      try { await DriveSync.signIn(); bar?.remove(); }
+      catch (e) { alert('Gagal connect Drive.\n' + (e?.message || e)); bar && (bar.style.display = 'block'); }
+      finally { btn.disabled = false; }
+    });
+  });
   </script>
 
-  <!-- Upload helper untuk PDF hasil generate -->
+  <!-- Upload helper untuk PDF hasil generate (SILENT, root, nama asli) -->
   <script>
-    async function sha256Hex(ab){const h=await crypto.subtle.digest('SHA-256',ab);return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join('');}
-    async function uploadGeneratedPDF(pdfBlobOrU8, baseName, folder='Form Serah Terima'){
-      if(!DriveSync?.isLogged?.()){alert('Sambungkan Google Drive dulu.');return;}
-      const blob = pdfBlobOrU8 instanceof Blob ? pdfBlobOrU8 : new Blob([pdfBlobOrU8], {type:'application/pdf'});
-      const ab   = await blob.arrayBuffer();
-      const hash = await sha256Hex(ab);
-      const file = new File([ab], (baseName||'FormSerahTerima')+'.pdf', {type:'application/pdf'});
+    async function sha256Hex(ab){
+      const h=await crypto.subtle.digest('SHA-256',ab);
+      return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    }
 
-      const exist = await DriveSync.findByHashPrefix(hash, folder);
-      const meta  = exist ? {id:exist.id,name:exist.name} : await DriveSync.uploadPdf(file, hash, folder);
-      alert('PDF tersimpan di Drive:\nhttps://drive.google.com/file/d/'+meta.id+'/view');
-      return meta;
+    /**
+     * Simpan PDF hasil generate ke Drive secara diam-diam:
+     * - Root "Bribox Kanpus"
+     * - Nama file = baseName.pdf (nama asli yang kamu kirim)
+     * - Tanpa sub-folder, tanpa alert/link
+     * Return: Promise<{uploaded:boolean, res?:{id,name}, queuedId?:number}>
+     */
+    async function saveGeneratedPdfSilent(pdfBlobOrU8, baseName){
+      const blob = pdfBlobOrU8 instanceof Blob ? pdfBlobOrU8 : new Blob([pdfBlobOrU8], {type:'application/pdf'});
+      // jadikan File agar nama ikut
+      const file = new File([await blob.arrayBuffer()], (baseName||'FormSerahTerima') + '.pdf', { type:'application/pdf' });
+
+      // hash opsional buat dedupe queue
+      let hash = null;
+      try { const ab = await file.arrayBuffer(); hash = await sha256Hex(ab); } catch {}
+
+      // upload silent via queue (langsung kalau ready)
+      try {
+        const res = await DriveQueue.enqueueOrUpload(file, hash || null, null);
+        return res; // {uploaded:true,res} atau {uploaded:false,queuedId}
+      } catch (e) {
+        // kalau queue gagal pun: tetap diam (biar tidak ganggu UI)
+        return { uploaded:false };
+      }
     }
   </script>
 
   <!-- Logika halaman -->
-  <script src="formserahterima.js?v=upload-1"></script>
+  <script src="formserahterima.js?v=upload-2"></script>
 </body>
 </html>

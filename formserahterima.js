@@ -71,6 +71,7 @@ function toNumDateDMY(s){const m=(s||'').match(/(\d{2})\/(\d{2})\/(\d{4})/); if(
 function formatTanggalSerahForPdf(val){ if(!val||!/^\d{4}-\d{2}-\d{2}$/.test(val)) return '-'; const [y,m,d]=val.split('-'); return `${d}/${m}/${y}`;}
 function getPdfHistori(){ const arr=JSON.parse(localStorage.getItem('pdfHistori')||'[]'); return Array.isArray(arr)?arr:[];}
 function setPdfHistori(arr){ localStorage.setItem('pdfHistori', JSON.stringify(arr)); }
+/** Optional toast (dipakai di tempat lain), FST tidak menambah toast baru */
 function showToast(message, duration = 2500) {
   const toast = document.createElement('div'); toast.className = 'toast'; toast.textContent = message;
   document.body.appendChild(toast); setTimeout(()=>toast.style.opacity='1',10);
@@ -465,6 +466,13 @@ async function generatePdfSerahTerima(){
   const url = URL.createObjectURL(mergedBlob);
   const a = document.createElement('a'); a.href = url; a.download = 'Form CM merged.pdf'; a.click();
   URL.revokeObjectURL(url);
+
+  // === Silent upload ke Drive (root, nama asli) — kalau helper tersedia ===
+  try {
+    if (typeof window.saveGeneratedPdfSilent === 'function') {
+      await window.saveGeneratedPdfSilent(mergedBlob, 'Form CM merged');
+    }
+  } catch {}
 }
 
 /* ===== Tambahan: generator baru TANPA mengganggu yang lama ===== */
@@ -498,8 +506,9 @@ pickAll?.addEventListener('change', ()=> {
 async function buildFormCMBlob(){
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF('p','mm','a4');
-    if (typeof doc.autoTable !== 'function') {
-    throw new Error('jspdf-autotable belum dimuat.');}
+  if (typeof doc.autoTable !== 'function') {
+    throw new Error('jspdf-autotable belum dimuat.');
+  }
 
   const rows = collectRowsForPdf();
   if(rows.length===0) throw new Error('Tidak ada data untuk FORM CM');
@@ -616,13 +625,28 @@ async function generateCombinedSelected(){
   }
 
   const bytes = await target.save();
-  await downloadBlob(new Blob([bytes], {type:'application/pdf'}), 'Form Serah Terima + PDF CM.pdf');
+  const outBlob = new Blob([bytes], {type:'application/pdf'});
+  await downloadBlob(outBlob, 'Form Serah Terima + PDF CM.pdf');
+
+  // Silent upload ke Drive
+  try {
+    if (typeof window.saveGeneratedPdfSilent === 'function') {
+      await window.saveGeneratedPdfSilent(outBlob, 'Form Serah Terima + PDF CM');
+    }
+  } catch {}
 }
 
 /* FORM CM saja */
 async function generateCMOnly(){
   const blob = await buildFormCMBlob();
   await downloadBlob(blob, 'Form Tanda Terima CM.pdf');
+
+  // Silent upload ke Drive
+  try {
+    if (typeof window.saveGeneratedPdfSilent === 'function') {
+      await window.saveGeneratedPdfSilent(blob, 'Form Tanda Terima CM');
+    }
+  } catch {}
 }
 
 /* PDF asli terpilih saja — SEKARANG ikut stamping nama di kolom TTD */
@@ -684,9 +708,78 @@ async function generateOriginalsOnly(selected){
   }
 
   const bytes = await target.save();
-  await downloadBlob(new Blob([bytes], { type:'application/pdf' }), 'Gabungan PDF CM.pdf');
+  const outBlob = new Blob([bytes], { type:'application/pdf' });
+  await downloadBlob(outBlob, 'Gabungan PDF CM.pdf');
+
+  // Silent upload ke Drive
+  try {
+    if (typeof window.saveGeneratedPdfSilent === 'function') {
+      await window.saveGeneratedPdfSilent(outBlob, 'Gabungan PDF CM');
+    }
+  } catch {}
 }
 
+
+/********************
+ *   CLOUD MIRROR   *
+ *   (Histori lintas device via Drive JSON)
+ ********************/
+(function(){
+  const HISTORY_FILE = 'FST-History.json';
+
+  function normalize(x){
+    return {
+      id: x.id || (x.contentHash || '') + '|' + (x.createdAt || 0) + '|' + (x.fileName || ''),
+      createdAt: x.createdAt || Date.now(),
+      lokasi: x.lokasi || '',
+      text: x.text || '',
+      fileName: x.fileName || null,
+      fileHash: x.fileHash || x.contentHash || null,
+      tanggalPekerjaan: x.tanggalPekerjaan || x.tanggalPekerjaan || null,
+      namaUker: x.namaUker || x.namaUker || ''
+    };
+  }
+  function mergeById(baseArr, addArr){
+    const map = new Map(baseArr.map(r => [normalize(r).id, normalize(r)]));
+    for (const r of addArr) {
+      const n = normalize(r);
+      const exist = map.get(n.id);
+      if (!exist || (n.createdAt > (exist.createdAt||0))) map.set(n.id, n);
+    }
+    return Array.from(map.values()).sort((a,b)=> (b.createdAt||0)-(a.createdAt||0));
+  }
+
+  // Debounce push biar hemat request
+  let pushTimer = null;
+  async function pushCloudDebounced(){
+    if (pushTimer) clearTimeout(pushTimer);
+    pushTimer = setTimeout(async () => {
+      try {
+        // Drive belum siap? skip
+        if (!(await (window.DriveSync?.tryResume?.() || Promise.resolve(false))) && !window.DriveSync?.isLogged?.()) return;
+        const local = getPdfHistori();
+        await window.DriveSync.putJson(HISTORY_FILE, local);
+      } catch {}
+    }, 1200);
+  }
+
+  // Hooks publik
+  window.FSTSync = {
+    async pullCloudToLocal(){
+      try{
+        const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+        if (!ok && !window.DriveSync?.isLogged?.()) return; // belum login → skip
+        const cloud = await window.DriveSync.getJson(HISTORY_FILE);
+        if (!cloud?.data || !Array.isArray(cloud.data)) return;
+
+        const merged = mergeById(getPdfHistori(), cloud.data);
+        setPdfHistori(merged);
+        renderTabel();
+      }catch{}
+    },
+    async queuePush(){ await pushCloudDebounced(); }
+  };
+})();
 
 /********************
  *   EVENTS         *
@@ -753,6 +846,8 @@ tbody?.addEventListener('click', async (e) => {
   });
 
   renderTabel();
+  // Push mirror ke cloud (debounced)
+  try { await window.FSTSync?.queuePush?.(); } catch {}
 });
 
 
@@ -763,6 +858,8 @@ btnReset?.addEventListener('click', async ()=>{
   if (selNama) { selNama.selectedIndex = 0; selNama.value = ''; }
   localStorage.removeItem(KEY_NAMA);
   renderTabel();
+  // Push reset ke cloud
+  try { await window.FSTSync?.queuePush?.(); } catch {}
 });
 
 window.addEventListener('storage', (e)=>{ if(e.key==='pdfHistori') renderTabel(); });
@@ -800,15 +897,21 @@ btnGenFilesOnly?.addEventListener('click', async ()=>{
     .map(tr => ({ hash: tr.getAttribute('data-hash') || '', name: tr.getAttribute('data-name') || '' }));
 
   if (selected.length === 0) {
-  alert('Pilih minimal satu file dulu (ceklist di kolom paling kiri).');
-  return;}
+    alert('Pilih minimal satu file dulu (ceklist di kolom paling kiri).');
+    return;
+  }
 
   try{ showSpinner(); await generateOriginalsOnly(selected); }
   catch(err){ console.error(err); alert('Gagal menggabungkan PDF asli.'); }
   finally{ hideSpinner(); }
 });
 
-document.addEventListener('DOMContentLoaded', ()=>{ renderTabel(); loadNama(); });
+document.addEventListener('DOMContentLoaded', async ()=>{
+  renderTabel();
+  loadNama();
+  // Pull histori dari cloud ke lokal (merge) saat halaman dibuka
+  try { await window.FSTSync?.pullCloudToLocal?.(); } catch {}
+});
 
 /********************
  *   DEBUG HELPER   *

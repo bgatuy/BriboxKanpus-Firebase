@@ -145,7 +145,6 @@
         </div>
 
         <pre id="output" class="output-preview">Text akan muncul di sini...</pre>
-        <pre id="uploadStatus" class="output-status" aria-live="polite"></pre>
         <button id="copyBtn" class="primary" type="button">Copy</button>
       </section>
     </main>
@@ -202,34 +201,14 @@
   });
   </script>
 
-  <!-- Upload handler (upload saat pilih file, status di #uploadStatus) -->
+  <!-- FILE CHANGE: hanya simpan file yang dipilih ke state; TIDAK upload -->
   <script>
-    document.addEventListener('DOMContentLoaded',()=> {
-      const pdfInput   = document.getElementById('pdfFile');
-      const statusEl   = document.getElementById('uploadStatus');
-
-      async function uploadSelectedFile(){
-        const file = pdfInput?.files?.[0];
-        if (!file) return;
-        if (!window.DriveSync?.isLogged?.()){
-          alert('Sambungkan Google Drive dulu.');
-          return;
-        }
-        statusEl.textContent = 'Mengupload ke Drive...';
-        try{
-          // Simpan ke ROOT "Bribox Kanpus" dengan NAMA FILE ASLI (tanpa hash, tanpa subfolder)
-          const meta = await DriveSync.uploadPdf(file, null, null, { simpleName: true });
-          const url  = `https://drive.google.com/file/d/${meta.id}/view`;
-          statusEl.textContent = `Upload selesai.\nNama: ${meta.name}\nLink: ${url}`;
-        }catch(e){
-          statusEl.textContent = 'Gagal upload: ' + (e?.message || e);
-          console.error('[upload error]', e);
-        }
-      }
-
-      // upload langsung setelah pilih file
-      pdfInput?.addEventListener('change', uploadSelectedFile);
-      // NOTE: pilihan lokasi tidak memicu upload lagi — biarkan hanya untuk template teks di trackmate.js
+    document.addEventListener('DOMContentLoaded', () => {
+      const pdfInput = document.getElementById('pdfFile');
+      pdfInput?.addEventListener('change', () => {
+        window.currentFile = pdfInput.files?.[0] || null;  // dipakai trackmate.js saat Copy
+      });
+      // Catatan: Upload dilakukan diam-diam saat tombol "Copy" di trackmate.js
     });
   </script>
 

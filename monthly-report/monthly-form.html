@@ -10,41 +10,39 @@
   <!-- guard overflow supaya konten gak meluber -->
   <style>body[data-page="monthly"] .dashboard .main{min-width:0}</style>
 
-   <!-- CONFIG -->
+  <!-- CONFIG -->
   <script src="../config.local.js"></script>
   <script>if(!window.__CONFIG){document.write('<script src="../config.sample.js"><\/script>')}</script>
-
-  </head>
+</head>
 <body data-page="monthly">
   <div class="dashboard">
     <!-- Sidebar -->
     <aside class="sidebar">
-  <h2 class="logo">
-    <img src="../favicon.png" class="logo-icon" alt="Logo" /> BRIBOX KANPUS
-  </h2>
-  <nav>
-    <a href="../trackmate.html">📋 Trackmate</a>
-    <a href="../appsheet.html">📋 AppSheet</a>
-    <a href="../formserahterima.html">📝 Form Serah Terima</a>
+      <h2 class="logo">
+        <img src="../favicon.png" class="logo-icon" alt="Logo" /> BRIBOX KANPUS
+      </h2>
+      <nav>
+        <a href="../trackmate.html">📋 Trackmate</a>
+        <a href="../appsheet.html">📋 AppSheet</a>
+        <a href="../formserahterima.html">📝 Form Serah Terima</a>
 
-    <button class="nav-group" type="button" aria-controls="nav-monthly" aria-expanded="true" onclick="
-      const t=this;const m=document.getElementById('nav-monthly');
-      const ex=t.getAttribute('aria-expanded')==='true';
-      t.setAttribute('aria-expanded', String(!ex)); m.hidden=ex;
-    ">📅 Monthly Report</button>
+        <button class="nav-group" type="button" aria-controls="nav-monthly" aria-expanded="true" onclick="
+          const t=this;const m=document.getElementById('nav-monthly');
+          const ex=t.getAttribute('aria-expanded')==='true';
+          t.setAttribute('aria-expanded', String(!ex)); m.hidden=ex;
+        ">📅 Monthly Report</button>
 
-    <div id="nav-monthly" class="submenu">
-      <a href="monthly-form.html" class="active">Monthly Report Form</a>
-      <a href="monthly-data.html">Monthly Report Data</a>
-    </div>
-  </nav>
-  <div class="sidebar-credit" aria-label="Project credit">
+        <div id="nav-monthly" class="submenu">
+          <a href="monthly-form.html" class="active">Monthly Report Form</a>
+          <a href="monthly-data.html">Monthly Report Data</a>
+        </div>
+      </nav>
+      <div class="sidebar-credit" aria-label="Project credit">
         Web App Created By BangAtuy - 2025
       </div>
-</aside>
+    </aside>
 
-
-    <!-- Main wrapper (INI yang bikin layout kembali rapi) -->
+    <!-- Main -->
     <main class="main">
       <header class="dashboard-header">
         <button class="sidebar-toggle-btn" onclick="toggleSidebar()">☰</button>
@@ -52,7 +50,7 @@
         <button id="toggleModeBtn" onclick="toggleDarkMode()">🌙</button>
       </header>
 
-      <!-- ======= KONTEN FORM (struktur ASLI tetap) ======= -->
+      <!-- ======= KONTEN FORM ======= -->
       <section class="card">
         <h3 style="text-align:left;margin-bottom:8px">Input SPJ Harian</h3>
         <p class="muted" style="margin:-6px 0 12px">Di Rekap di halaman Data.</p>
@@ -145,26 +143,29 @@
             <textarea id="keterangan" rows="3" placeholder="Tambahan detail jika perlu..."></textarea>
           </label>
 
-         <div class="toolbar">
-  <div class="toolbar-left">
-    <button type="submit" class="btn primary">Simpan</button>
-    <button type="reset" class="btn danger">Reset</button>
-  </div>
-  <div class="toolbar-right">
-    <a id="linkData" class="btn info" href="monthly-data.html">Lihat Data</a>
-  </div>
-</div>
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <button type="submit" class="btn primary">Simpan</button>
+              <button type="reset" class="btn danger">Reset</button>
+            </div>
+            <div class="toolbar-right">
+              <a id="linkData" class="btn info" href="monthly-data.html">Lihat Data</a>
+            </div>
+          </div>
+        </form>
 
-<!-- meta tetap di dalam card ini -->
-<div class="meta-inline">
-  <strong id="countBulan">0</strong>
-  <span>Entri data tersimpan untuk bulan ini</span>
-</div>
-
-      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+        <!-- meta tetap di dalam card ini -->
+        <div class="meta-inline">
+          <strong id="countBulan">0</strong>
+          <span>Entri data tersimpan untuk bulan ini</span>
+        </div>
+      </section>
     </main>
   </div>
 
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- Prefs & UX -->
   <script>
     if (localStorage.getItem('darkMode') === 'true') document.body.classList.add('dark-mode');
     document.addEventListener('DOMContentLoaded', () => {
@@ -182,51 +183,102 @@
       if (isMobile) sb.classList.toggle('visible'); else sb.classList.toggle('hidden');
     }
 
+    // buka submenu Monthly sesuai halaman aktif
     (function(){
-    const m=document.getElementById('nav-monthly');
-    const p=document.querySelector('.nav-group[aria-controls="nav-monthly"]');
-    if(!m||!p) return;
-    const hasActive=!!m.querySelector('a.active');
-    p.setAttribute('aria-expanded', hasActive?'true':'false');
-    m.hidden=!hasActive;
-  })();
+      const m=document.getElementById('nav-monthly');
+      const p=document.querySelector('.nav-group[aria-controls="nav-monthly"]');
+      if(!m||!p) return;
+      const hasActive=!!m.querySelector('a.active');
+      p.setAttribute('aria-expanded', hasActive?'true':'false');
+      m.hidden=!hasActive;
+    })();
 
-  document.addEventListener('DOMContentLoaded', () => {
-  if (document.body.dataset.page !== 'monthly') return;
+    // swap posisi "Jam Berangkat" vs "Jam Masuk Laporan (auto)"
+    document.addEventListener('DOMContentLoaded', () => {
+      if (document.body.dataset.page !== 'monthly') return;
+      const grid = document.querySelector('body[data-page="monthly"] .grid');
+      if (!grid) return;
 
-  // cari grid form utama
-  const grid = document.querySelector('body[data-page="monthly"] .grid');
-  if (!grid) return;
+      const findFieldByLabel = (txt) => {
+        const fields = grid.querySelectorAll('.field');
+        const norm = s => s.replace(/\s+/g,' ').trim().toLowerCase();
+        const want = norm(txt);
+        return Array.from(fields).find(f => {
+          const sp = f.querySelector(':scope > span');
+          return sp && norm(sp.textContent) === want;
+        });
+      };
 
-  // helper: cari .field berdasarkan teks label (span pertama di dalam .field)
-  const findFieldByLabel = (txt) => {
-    const fields = grid.querySelectorAll('.field');
-    const norm = s => s.replace(/\s+/g,' ').trim().toLowerCase();
-    const want = norm(txt);
-    return Array.from(fields).find(f => {
-      const sp = f.querySelector(':scope > span');
-      return sp && norm(sp.textContent) === want;
+      const fBerangkat = findFieldByLabel('Jam Berangkat');
+      const fLaporan  = findFieldByLabel('Jam Masuk Laporan (auto)');
+
+      if (fBerangkat && fLaporan && fBerangkat !== fLaporan) {
+        const placeholder = document.createElement('div');
+        grid.insertBefore(placeholder, fBerangkat);
+        grid.replaceChild(fBerangkat, fLaporan);
+        grid.insertBefore(fLaporan, placeholder);
+        grid.removeChild(placeholder);
+      }
     });
-  };
-
-  // target yang mau ditukar
-  const fBerangkat = findFieldByLabel('Jam Berangkat');
-  const fLaporan  = findFieldByLabel('Jam Masuk Laporan (auto)');
-
-  if (fBerangkat && fLaporan && fBerangkat !== fLaporan) {
-    // swap posisi node di dalam grid (tanpa clone → event/listener tetap aman)
-    const placeholder = document.createElement('div');
-    grid.insertBefore(placeholder, fBerangkat);
-    grid.replaceChild(fBerangkat, fLaporan);
-    grid.insertBefore(fLaporan, placeholder);
-    grid.removeChild(placeholder);
-  }
-});
   </script>
-   <!-- Auth + Guard -->
+
+  <!-- Auth + Guard -->
   <script defer src="../auth.js"></script>
   <script>document.addEventListener('DOMContentLoaded',()=>Auth.enforce());</script>
-  
+
+  <!-- Drive core (wajib untuk sync lintas device) -->
+  <script src="../drive-sync.js" defer></script>
+
+  <!-- Monthly Cloud Mirror (Drive JSON) -->
+  <script>
+  (function(){
+    const FILE = 'Monthly-Data.json';
+
+    function norm(x){
+      const id = x.id || [x.month,x.date,x.teknisi,x.createdAt].filter(Boolean).join('|');
+      return { id, createdAt:x.createdAt||Date.now(), ...x };
+    }
+    function merge(base, add){
+      const m = new Map(base.map(r=>{const n=norm(r); return [n.id,n];}));
+      for(const r of add){
+        const n = norm(r);
+        const ex = m.get(n.id);
+        if(!ex || (new Date(n.createdAt) > new Date(ex.createdAt||0))) m.set(n.id,n);
+      }
+      return [...m.values()];
+    }
+
+    let t=null;
+    async function pushDebounced(getLocal){
+      if(t) clearTimeout(t);
+      t=setTimeout(async ()=>{
+        try{
+          const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+          if(!ok && !window.DriveSync?.isLogged?.()) return;
+          const local = await getLocal();
+          await window.DriveSync.putJson(FILE, local||[]);
+        }catch{}
+      }, 900);
+    }
+
+    window.MonthlySync = {
+      async pull(getLocal,setLocal,onAfter){
+        try{
+          const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+          if(!ok && !window.DriveSync?.isLogged?.()) return;
+          const cloud = await window.DriveSync.getJson(FILE);
+          if(!Array.isArray(cloud?.data)) return;
+          const merged = merge((await getLocal())||[], cloud.data);
+          await setLocal(merged);
+          onAfter && onAfter();
+        }catch{}
+      },
+      queuePush(getLocal){ return pushDebounced(getLocal); }
+    };
+  })();
+  </script>
+
+  <!-- Logic form -->
   <script src="monthly-form.js"></script>
 </body>
 </html>

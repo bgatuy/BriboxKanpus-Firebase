@@ -10,41 +10,39 @@
   <!-- guard overflow supaya konten gak meluber -->
   <style>body[data-page="monthly"] .dashboard .main{min-width:0}</style>
 
-    <!-- CONFIG -->
+  <!-- CONFIG -->
   <script src="../config.local.js"></script>
   <script>if(!window.__CONFIG){document.write('<script src="../config.sample.js"><\/script>')}</script>
-
-  </head>
+</head>
 <body data-page="monthly">
   <div class="dashboard">
     <!-- Sidebar -->
     <aside class="sidebar">
-  <h2 class="logo">
-    <img src="../favicon.png" class="logo-icon" alt="Logo" /> BRIBOX KANPUS
-  </h2>
-  <nav>
-    <a href="../trackmate.html">📋 Trackmate</a>
-    <a href="../appsheet.html">📋 AppSheet</a>
-    <a href="../formserahterima.html">📝 Form Serah Terima</a>
+      <h2 class="logo">
+        <img src="../favicon.png" class="logo-icon" alt="Logo" /> BRIBOX KANPUS
+      </h2>
+      <nav>
+        <a href="../trackmate.html">📋 Trackmate</a>
+        <a href="../appsheet.html">📋 AppSheet</a>
+        <a href="../formserahterima.html">📝 Form Serah Terima</a>
 
-    <!-- Parent collapsible -->
-    <button class="nav-group" type="button" aria-controls="nav-monthly" aria-expanded="true" onclick="
-      const t=this;const m=document.getElementById('nav-monthly');
-      const ex=t.getAttribute('aria-expanded')==='true';
-      t.setAttribute('aria-expanded', String(!ex)); m.hidden=ex;
-    ">📅 Monthly Report</button>
+        <!-- Parent collapsible -->
+        <button class="nav-group" type="button" aria-controls="nav-monthly" aria-expanded="true" onclick="
+          const t=this;const m=document.getElementById('nav-monthly');
+          const ex=t.getAttribute('aria-expanded')==='true';
+          t.setAttribute('aria-expanded', String(!ex)); m.hidden=ex;
+        ">📅 Monthly Report</button>
 
-    <!-- Submenu -->
-    <div id="nav-monthly" class="submenu">
-      <a href="monthly-form.html">Monthly Report Form</a>
-      <a href="monthly-data.html" class="active">Monthly Report Data</a>
-    </div>
-  </nav>
-  <div class="sidebar-credit" aria-label="Project credit">
+        <!-- Submenu -->
+        <div id="nav-monthly" class="submenu">
+          <a href="monthly-form.html">Monthly Report Form</a>
+          <a href="monthly-data.html" class="active">Monthly Report Data</a>
+        </div>
+      </nav>
+      <div class="sidebar-credit" aria-label="Project credit">
         Web App Created By BangAtuy - 2025
       </div>
-</aside>
-
+    </aside>
 
     <!-- Main -->
     <main class="main">
@@ -71,7 +69,6 @@
       <section class="card table-area">
         <div class="tablewrap" id="tablewrap">
           <table class="table" id="table">
-            
             <thead>
               <tr class="h1">
                 <th rowspan="2">Tanggal</th>
@@ -122,34 +119,114 @@
       const isMobile = window.matchMedia('(max-width:768px)').matches;
       if (isMobile) sb.classList.toggle('visible'); else sb.classList.toggle('hidden');
     }
-  
-function setStickyOffsets(){
-    const h1 = document.querySelector('.table thead tr.h1');
-    if(!h1) return;
-    const h = Math.ceil(h1.getBoundingClientRect().height);
-    // targetkan langsung ke body[data-page="monthly"] supaya override benar
-    const bodyMonthly = document.querySelector('body[data-page="monthly"]') || document.body;
-    bodyMonthly.style.setProperty('--th-h1', h + 'px');
-  }
-  window.addEventListener('load', setStickyOffsets);
-  window.addEventListener('resize', setStickyOffsets);
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(setStickyOffsets);
-  window.recalcStickyHeader = setStickyOffsets;
 
-  // buka submenu otomatis jika salah satu child memiliki .active
-  (function(){
-    const m=document.getElementById('nav-monthly');
-    const p=document.querySelector('.nav-group[aria-controls="nav-monthly"]');
-    if(!m||!p) return;
-    const hasActive=!!m.querySelector('a.active');
-    p.setAttribute('aria-expanded', hasActive?'true':'false');
-    m.hidden=!hasActive;
-  })();
-</script>
+    function setStickyOffsets(){
+      const h1 = document.querySelector('.table thead tr.h1');
+      if(!h1) return;
+      const h = Math.ceil(h1.getBoundingClientRect().height);
+      // targetkan langsung ke body[data-page="monthly"] supaya override benar
+      const bodyMonthly = document.querySelector('body[data-page="monthly"]') || document.body;
+      bodyMonthly.style.setProperty('--th-h1', h + 'px');
+    }
+    window.addEventListener('load', setStickyOffsets);
+    window.addEventListener('resize', setStickyOffsets);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(setStickyOffsets);
+    window.recalcStickyHeader = setStickyOffsets;
+
+    // buka submenu otomatis jika salah satu child memiliki .active
+    (function(){
+      const m=document.getElementById('nav-monthly');
+      const p=document.querySelector('.nav-group[aria-controls="nav-monthly"]');
+      if(!m||!p) return;
+      const hasActive=!!m.querySelector('a.active');
+      p.setAttribute('aria-expanded', hasActive?'true':'false');
+      m.hidden=!hasActive;
+    })();
+  </script>
+
   <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
   <script defer src="../auth.js"></script>
   <script>document.addEventListener('DOMContentLoaded',()=>Auth.enforce());</script>
-  
+
+  <!-- Drive core (wajib untuk sync lintas device) -->
+  <script src="../drive-sync.js" defer></script>
+
+  <!-- Monthly Cloud Mirror (Drive JSON) -->
+  <script>
+  (function(){
+    const FILE = 'Monthly-Data.json';
+
+    function norm(x){
+      const id = x.id || [x.month,x.date,x.teknisi,x.createdAt].filter(Boolean).join('|');
+      return { id, createdAt:x.createdAt||Date.now(), ...x };
+    }
+    function merge(base, add){
+      const m = new Map(base.map(r=>{const n=norm(r); return [n.id,n];}));
+      for(const r of add){
+        const n = norm(r);
+        const ex = m.get(n.id);
+        if(!ex || (new Date(n.createdAt) > new Date(ex.createdAt||0))) m.set(n.id,n);
+      }
+      return [...m.values()];
+    }
+
+    let t=null;
+    async function pushDebounced(getLocal){
+      if(t) clearTimeout(t);
+      t=setTimeout(async ()=>{
+        try{
+          const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+          if(!ok && !window.DriveSync?.isLogged?.()) return;
+          const local = await getLocal();
+          await window.DriveSync.putJson(FILE, local||[]);
+        }catch{}
+      }, 900);
+    }
+
+    window.MonthlySync = {
+      async pull(getLocal,setLocal,onAfter){
+        try{
+          const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+          if(!ok && !window.DriveSync?.isLogged?.()) return;
+          const cloud = await window.DriveSync.getJson(FILE);
+          if(!Array.isArray(cloud?.data)) return;
+          const merged = merge((await getLocal())||[], cloud.data);
+          await setLocal(merged);
+          onAfter && onAfter();
+        }catch{}
+      },
+      queuePush(getLocal){ return pushDebounced(getLocal); }
+    };
+  })();
+  </script>
+
+  <!-- Logic data (render/filter/export/reset, tetap file terpisah) -->
   <script src="monthly-data.js"></script>
+
+  <!-- Bootstrap sinkronisasi: pull dari Drive saat halaman siap -->
+  <script>
+    // adaptor lokal sederhana (sesuaikan kunci kalau berbeda di monthly-data.js)
+    async function monthlyGetLocal(){
+      try { return JSON.parse(localStorage.getItem('monthlyReports') || '[]'); }
+      catch { return []; }
+    }
+    async function monthlySetLocal(arr){
+      localStorage.setItem('monthlyReports', JSON.stringify(arr || []));
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      // render lokal dulu (biar cepat)
+      if (typeof window.applyFilters === 'function') {
+        try { window.applyFilters(); } catch {}
+      }
+      // tarik dari Drive -> merge -> render ulang
+      try {
+        await MonthlySync.pull(monthlyGetLocal, monthlySetLocal, () => {
+          if (typeof window.applyFilters === 'function')      { try { window.applyFilters(); } catch {} }
+          else if (typeof window.renderMonthlyTable === 'function') { try { window.renderMonthlyTable(); } catch {} }
+        });
+      } catch {}
+    });
+  </script>
 </body>
 </html>

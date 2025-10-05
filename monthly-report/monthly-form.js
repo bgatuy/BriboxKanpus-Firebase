@@ -2,34 +2,34 @@
   const STORAGE_KEY = 'monthlyReports';
 
   /* ========= SIDEBAR ========= */
-const sidebar   = document.querySelector('.sidebar');
-const overlay   = document.getElementById('sidebarOverlay') || document.querySelector('.sidebar-overlay');
-const sidebarLinks = document.querySelectorAll('.sidebar a');
+  const sidebar   = document.querySelector('.sidebar');
+  const overlay   = document.getElementById('sidebarOverlay') || document.querySelector('.sidebar-overlay');
+  const sidebarLinks = document.querySelectorAll('.sidebar a');
 
-function openSidebar() { sidebar.classList.add('visible'); overlay?.classList.add('show'); document.body.style.overflow = 'hidden'; }
-function closeSidebar() { sidebar.classList.remove('visible'); overlay?.classList.remove('show'); document.body.style.overflow = ''; }
-function toggleSidebar() { sidebar.classList.contains('visible') ? closeSidebar() : openSidebar(); }
-window.toggleSidebar = toggleSidebar;
+  function openSidebar() { sidebar.classList.add('visible'); overlay?.classList.add('show'); document.body.style.overflow = 'hidden'; }
+  function closeSidebar() { sidebar.classList.remove('visible'); overlay?.classList.remove('show'); document.body.style.overflow = ''; }
+  function toggleSidebar() { sidebar.classList.contains('visible') ? closeSidebar() : openSidebar(); }
+  window.toggleSidebar = toggleSidebar;
 
-overlay?.addEventListener('click', closeSidebar);
-document.addEventListener('click', (e) => {
-  const isMobile = window.matchMedia('(max-width: 768px)').matches;
-  if (!isMobile) return;
-  const clickInsideSidebar = sidebar.contains(e.target);
-  const clickOnToggle = e.target.closest('.sidebar-toggle-btn');
-  if (sidebar.classList.contains('visible') && !clickInsideSidebar && !clickOnToggle) closeSidebar();
-});
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && sidebar.classList.contains('visible')) closeSidebar(); });
-sidebarLinks.forEach(a => a.addEventListener('click', closeSidebar));
+  overlay?.addEventListener('click', closeSidebar);
+  document.addEventListener('click', (e) => {
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    if (!isMobile) return;
+    const clickInsideSidebar = sidebar.contains(e.target);
+    const clickOnToggle = e.target.closest('.sidebar-toggle-btn');
+    if (sidebar.classList.contains('visible') && !clickInsideSidebar && !clickOnToggle) closeSidebar();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && sidebar.classList.contains('visible')) closeSidebar(); });
+  sidebarLinks.forEach(a => a.addEventListener('click', closeSidebar));
 
-document.addEventListener('DOMContentLoaded', function () {
-  const title = document.querySelector('.dashboard-header h1')?.textContent?.toLowerCase() || "";
-  const body = document.body;
-  if (title.includes('trackmate'))      body.setAttribute('data-page', 'trackmate');
-  else if (title.includes('appsheet'))  body.setAttribute('data-page', 'appsheet');
-  else if (title.includes('serah'))     body.setAttribute('data-page', 'serah');
-  else if (title.includes('merge'))     body.setAttribute('data-page', 'merge');
-});
+  document.addEventListener('DOMContentLoaded', function () {
+    const title = document.querySelector('.dashboard-header h1')?.textContent?.toLowerCase() || "";
+    const body = document.body;
+    if (title.includes('trackmate'))      body.setAttribute('data-page', 'trackmate');
+    else if (title.includes('appsheet'))  body.setAttribute('data-page', 'appsheet');
+    else if (title.includes('serah'))     body.setAttribute('data-page', 'serah');
+    else if (title.includes('merge'))     body.setAttribute('data-page', 'merge');
+  });
 
   // ===== elem refs
   const el = (id) => document.getElementById(id);
@@ -76,7 +76,7 @@ document.addEventListener('DOMContentLoaded', function () {
   function loadReports(){ try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; } }
   function saveReports(arr){ localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); }
 
-  function refreshCountForMonth(month){ countBulan && (countBulan.textContent = loadReports().filter(x=>x.month===month).length); }
+  function refreshCountForMonth(month){ if (countBulan) countBulan.textContent = loadReports().filter(x=>x.month===month).length; }
   function setLinkTargets(month){
     const href = `monthly-data.html?month=${encodeURIComponent(month)}`;
     if (linkData) linkData.href = href;
@@ -87,7 +87,7 @@ document.addEventListener('DOMContentLoaded', function () {
     toast.textContent = msg; toast.classList.add('show'); setTimeout(()=> toast.classList.remove('show'), 1600);
   }
 
-  // ===== Dropdown teknisi (STATIS, TANPA tombol + / localStorage)
+  // ===== Dropdown teknisi (STATIS)
   function populateTeknisi(){
     if (!teknisi) return;
     const list = [
@@ -98,7 +98,6 @@ document.addEventListener('DOMContentLoaded', function () {
       "Azriel Raja Simamora",
       "Dimas Pujianto"
     ];
-    // Kalau HTML sudah hard-coded, ini akan menimpa dengan list yang sama—aman.
     if (!teknisi.options.length || teknisi.firstElementChild?.value === "") {
       teknisi.innerHTML = ['<option value="">-- Pilih Nama --</option>']
         .concat(list.map(n=>`<option value="${n}">${n}</option>`)).join('');
@@ -127,20 +126,42 @@ document.addEventListener('DOMContentLoaded', function () {
     } else { durasiPenyelesaian.value = '0:00'; }
   }
 
+  // ===== Cloud mirror adapters (Drive JSON)
+  async function monthlyGetLocal(){
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
+    catch { return []; }
+  }
+  async function monthlySetLocal(arr){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(arr || []));
+  }
+
   // ===== init
   bulan.value = defaultMonth();
   tanggal.value = defaultDate();
   setLinkTargets(bulan.value);
   refreshCountForMonth(bulan.value);
-  populateTeknisi();                // <-- balikin ini, sekarang fungsinya ada
+  populateTeknisi();
 
-  // pastikan auto-hitungan jalan saat ketik ATAU blur
   [jamBerangkat,jamTiba,jamMulai,jamSelesai].forEach(inp=>{
     ['input','change'].forEach(ev => inp.addEventListener(ev, computeAutoFields));
   });
   computeAutoFields();
 
-  bulan.addEventListener('change', ()=>{ setLinkTargets(bulan.value); refreshCountForMonth(bulan.value); });
+  bulan.addEventListener('change', ()=>{
+    setLinkTargets(bulan.value);
+    refreshCountForMonth(bulan.value);
+  });
+
+  // Tarik data cloud → merge ke lokal → refresh counter (biar lintas device konsisten)
+  (async () => {
+    try {
+      if (window.MonthlySync?.pull) {
+        await window.MonthlySync.pull(monthlyGetLocal, monthlySetLocal, () => {
+          refreshCountForMonth(bulan.value);
+        });
+      }
+    } catch {}
+  })();
 
   // ===== helper
   function formatTanggalLong(dateStr){
@@ -149,11 +170,11 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   // ===== submit
-  form.addEventListener('submit', (e)=>{
+  form.addEventListener('submit', async (e)=>{
     e.preventDefault();
-    const month = bulan.value?.trim();
-    const dateStr = tanggal.value?.trim();
-    const tech = teknisi.value?.trim();
+    const month = (bulan.value || '').trim();
+    const dateStr = (tanggal.value || '').trim();
+    const tech = (teknisi.value || '').trim();
     if(!month || !dateStr || !tech){ showToast('Bulan, Tanggal, dan Teknisi wajib diisi.'); return; }
 
     computeAutoFields(); // ensure latest
@@ -191,7 +212,16 @@ document.addEventListener('DOMContentLoaded', function () {
       updatedAt: new Date().toISOString()
     };
 
+    // Simpan lokal
     const all = loadReports(); all.push(rec); saveReports(all);
+
+    // Mirror ke Drive (debounced, silent)
+    try {
+      if (window.MonthlySync?.queuePush) {
+        await window.MonthlySync.queuePush(monthlyGetLocal);
+      }
+    } catch {}
+
     showToast('Data tersimpan.');
     form.reset(); bulan.value = month; tanggal.value = defaultDate();
     setLinkTargets(month); refreshCountForMonth(month); computeAutoFields();

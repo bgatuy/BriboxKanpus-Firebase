@@ -1,4 +1,5 @@
 // monthly-data.js — INDIVIDUAL BUILD (XLSX only, per-device Active Technician, fixed signatures)
+// + Cloud mirror: pull/push via MonthlySync (Drive JSON)
 (function () {
   const STORAGE_KEY = "monthlyReports";
   const ACTIVE_TECH_KEY = "activeTechnician";
@@ -43,6 +44,11 @@
   function saveReports(arr) { localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); }
   function showToast(msg) { const t = $("toast"); if(!t) return; t.textContent = msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), 1600); }
 
+  // ===== Cloud mirror adapters
+  async function monthlyGetLocal(){ try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]'); }catch{ return []; } }
+  async function monthlySetLocal(arr){ localStorage.setItem(STORAGE_KEY, JSON.stringify(arr||[])); }
+  function pushMirrorSilent(){ try{ return window.MonthlySync?.queuePush ? window.MonthlySync.queuePush(monthlyGetLocal) : Promise.resolve(); }catch{ return Promise.resolve(); } }
+
   // ===== pick month (URL -> latest in storage -> now)
   function pickActiveMonth() {
     const fromUrl = new URL(location.href).searchParams.get("month");
@@ -80,17 +86,14 @@
     const activeTech = getActiveTechnician();
     let rows = loadReports().filter(r=>r.month===month);
 
-    // Lock per individu: hanya milik teknisi aktif
-    if (activeTech) rows = rows.filter(r => (r.teknisi||"") === activeTech);
+    if (activeTech) rows = rows.filter(r => (r.teknisi||"") === activeTech); // lock per-individu
 
-    // pencarian tambahan
     if(q){
       rows = rows.filter(r=>{
         const hay = [r.tanggalLabel,r.date,r.teknisi,r.lokasiDari,r.lokasiKe,r.jenis,r.detail,r.status,r.keterangan,r.jamMasuk,r.jamBerangkat,r.jamTiba,r.jamMulai,r.jamSelesai,r.durasiPenyelesaianStr,r.waktuTempuhStr].map(norm).join(" ");
         return hay.includes(q);
       });
     }
-    // urut input ASC (tanggal, lalu createdAt)
     rows.sort((a,b)=>{ const ad=a.date||"", bd=b.date||""; if(ad!==bd) return ad.localeCompare(bd); return (a.createdAt||"").localeCompare(b.createdAt||""); });
 
     renderTable(rows);
@@ -100,12 +103,11 @@
 
   const esc = (s)=> String(s).replace(/[&<>"']/g,(m)=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
 
-  // dekat fungsi esc, sebelum renderTable
   function fmtJam(v){
     if (v == null || v === "") return "";
     const m = String(v).match(/^(\d{1,2}):(\d{2})$/);
-    if (!m) return String(v);            // bukan "HH:MM", balikin apa adanya
-    return `${parseInt(m[1], 10)}:${m[2]}`;  // 07:05 -> 7:05, 0:05 -> 0:05
+    if (!m) return String(v);
+    return `${parseInt(m[1], 10)}:${m[2]}`; // 07:05 -> 7:05
   }
 
   function renderTable(rows){
@@ -131,9 +133,9 @@
         <td><button class="btn-del" data-id="${r.id}">Hapus</button></td>
       </tr>`).join("");
 
-    // klik tombol hapus
+    // Hapus baris
     tbody.querySelectorAll(".btn-del").forEach(btn=>{
-      btn.addEventListener("click", ()=>{
+      btn.addEventListener("click", async ()=>{
         const id = btn.getAttribute("data-id");
         if(!id) return;
         if(!confirm("Hapus entri ini?")) return;
@@ -141,12 +143,13 @@
         saveReports(kept);
         showToast("Entri dihapus.");
         applyFilters();
+        await pushMirrorSilent(); // mirror Drive
       });
     });
 
-    // opsional: tetap dukung dbl-click baris
+    // Dblclick = hapus juga
     tbody.querySelectorAll("tr").forEach(tr=>{
-      tr.addEventListener("dblclick", () => {
+      tr.addEventListener("dblclick", async () => {
         const id = tr.getAttribute("data-id");
         if (!id) return;
         if (!confirm("Hapus entri ini?")) return;
@@ -154,6 +157,7 @@
         saveReports(kept);
         showToast("Entri dihapus.");
         applyFilters();
+        await pushMirrorSilent();
       });
     });
   }
@@ -163,7 +167,6 @@
      ======================= */
   function autoFitColumns(ws, { min=8, max=48, padding=2, wrapCols=[5,6,16] } = {}) {
     const colCount = ws.columnCount || ws.actualColumnCount || 16;
-
     const readText = (cell) => {
       const v = cell?.value;
       if (v == null) return '';
@@ -198,7 +201,7 @@
     }
   }
 
-  /* ============== NEW: Helpers “full calendar month” untuk EXPORT ============== */
+  /* ============== Helpers FULL CALENDAR untuk EXPORT ============== */
   const HARI_ID = ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"];
   const BULAN_ID = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
   const daysInMonth = (y, m) => new Date(y, m, 0).getDate(); // m=1..12
@@ -217,7 +220,6 @@
     for(const r of reports){
       let k = r.date;
       if(!k && r.tanggalLabel){
-        // fallback kasar: "Senin, 02 September 2025"
         const parts = String(r.tanggalLabel).split(' ');
         const d = parseInt(parts[1],10);
         const y = parseInt(parts[3],10);
@@ -231,69 +233,55 @@
     return map;
   }
 
-  /**
-   * Build rows 1 bulan penuh:
-   * - Selalu ada minimal 1 baris per tanggal
-   * - Jika ada multi-entry di hari yg sama: tanggal hanya di baris pertama, sisanya kosong (rapi)
-   */
   function buildMonthRows(year, month, reports){
-  // Ambil hanya data bulan yang dimaksud
-  const onlyThisMonth = reports.filter(r=>{
-    if(!r?.date) return false;
-    const [y, m] = String(r.date).split('-').map(Number);
-    return y === year && m === month;
-  });
-
-  const perDate   = groupReportsByDate(onlyThisMonth);
-  const totalDays = daysInMonth(year, month); // m = 1..12
-  const rows = [];
-
-  for (let d = 1; d <= totalDays; d++) {
-    const k    = keyDate(year, month, d);
-    const list = perDate.get(k) || [];
-
-    if (list.length === 0) {
-      // BARIS KOSONG — default manual
-      rows.push({
-        tanggal: tanggalLabel(year, month, d),
-        teknisi: "", lokasiDari: "", lokasiKe: "", jenis: "", detail: "", status: "",
-        jamMasuk: "23:55",
-        jamBerangkat: "",
-        jamTiba: "",
-        jamMulai: "",
-        jamSelesai: "",
-        waktuPenyelesaian: 0,   // 0 -> tampil 0:00 (numFmt [h]:mm)
-        jarak: null,            // null -> sel nampak kosong
-        waktuTempuh: 0,         // 0 -> tampil 0:00
-        keterangan: ""
-      });
-      continue;
-    }
-
-    // Ada data di tanggal tsb
-    list.forEach((r, idx)=>{
-      rows.push({
-        tanggal: idx === 0 ? tanggalLabel(year, month, d) : "", // tanggal cuma di baris pertama
-        teknisi: r.teknisi || "",
-        lokasiDari: r.lokasiDari || "",
-        lokasiKe: r.lokasiKe || "",
-        jenis: r.jenis || "",
-        detail: r.detail || "",
-        status: r.status || "",
-        jamMasuk: r.jamMasuk || "",
-        jamBerangkat: r.jamBerangkat || "",
-        jamTiba: r.jamTiba || "",
-        jamMulai: r.jamMulai || "",
-        jamSelesai: r.jamSelesai || "",
-        waktuPenyelesaian: hmToExcelTime(r.durasiPenyelesaianStr || r.waktuPenyelesaian || ""),
-        jarak: (r.jarakKm === "" || r.jarakKm == null) ? null : Number(r.jarakKm || 0),
-        waktuTempuh: hmToExcelTime(r.waktuTempuhStr || r.waktuTempuh || ""),
-        keterangan: r.keterangan || ""
-      });
+    const onlyThisMonth = reports.filter(r=>{
+      if(!r?.date) return false;
+      const [y, m] = String(r.date).split('-').map(Number);
+      return y === year && m === month;
     });
+
+    const perDate   = groupReportsByDate(onlyThisMonth);
+    const totalDays = daysInMonth(year, month);
+    const rows = [];
+
+    for (let d = 1; d <= totalDays; d++) {
+      const k    = keyDate(year, month, d);
+      const list = perDate.get(k) || [];
+
+      if (list.length === 0) {
+        rows.push({
+          tanggal: tanggalLabel(year, month, d),
+          teknisi: "", lokasiDari: "", lokasiKe: "", jenis: "", detail: "", status: "",
+          jamMasuk: "23:55",
+          jamBerangkat: "", jamTiba: "", jamMulai: "", jamSelesai: "",
+          waktuPenyelesaian: 0, jarak: null, waktuTempuh: 0, keterangan: ""
+        });
+        continue;
+      }
+
+      list.forEach((r, idx)=>{
+        rows.push({
+          tanggal: idx === 0 ? tanggalLabel(year, month, d) : "",
+          teknisi: r.teknisi || "",
+          lokasiDari: r.lokasiDari || "",
+          lokasiKe: r.lokasiKe || "",
+          jenis: r.jenis || "",
+          detail: r.detail || "",
+          status: r.status || "",
+          jamMasuk: r.jamMasuk || "",
+          jamBerangkat: r.jamBerangkat || "",
+          jamTiba: r.jamTiba || "",
+          jamMulai: r.jamMulai || "",
+          jamSelesai: r.jamSelesai || "",
+          waktuPenyelesaian: hmToExcelTime(r.durasiPenyelesaianStr || r.waktuPenyelesaian || ""),
+          jarak: (r.jarakKm === "" || r.jarakKm == null) ? null : Number(r.jarakKm || 0),
+          waktuTempuh: hmToExcelTime(r.waktuTempuhStr || r.waktuTempuh || ""),
+          keterangan: r.keterangan || ""
+        });
+      });
+    }
+    return rows;
   }
-  return rows;
-}
 
   // ===== Export XLSX (FULL CALENDAR)
   const minutesToExcelTime = (mins)=> (mins||0)/(24*60);
@@ -304,11 +292,11 @@
       if(!rowsAll.length){ showToast('Data kosong untuk bulan ini.'); return; }
       if(!window.ExcelJS) { showToast('ExcelJS belum termuat.'); return; }
 
-      // Ambil nama teknisi dari data bulan ini (tetap per-individu)
+      // Ambil nama teknisi dari data bulan ini (per-individu)
       const uniqTek = [...new Set(rowsAll.map(r => (r.teknisi||"").trim()).filter(Boolean))];
       if (uniqTek.length === 0) { showToast('Nama teknisi tidak ditemukan di data.'); return; }
       if (uniqTek.length > 1)   { showToast('Ditemukan >1 nama teknisi. Rapikan/filter dulu sebelum export.'); return; }
-      const teknisiPembuat = uniqTek[0];
+      const teknisiPembuat = uniqTek[0]; // << deklarasi SEKALI di sini
 
       const [yyStr, mmStr] = String(month||"").split("-");
       const yy=Number(yyStr||new Date().getFullYear());
@@ -317,7 +305,6 @@
       const title=`ABSENSI TEKNISI BULAN ${monthName.toUpperCase()} ${yy}`;
       const fileName=`SPJ ${monthName} ${yy} - ${teknisiPembuat}.xlsx`;
 
-      // ==== BUILD DATA SEBULAN PENUH ====
       const dataRows = buildMonthRows(yy, mm, rowsAll);
 
       const wb=new ExcelJS.Workbook();
@@ -373,13 +360,12 @@
           dr.jamTiba ? hmToExcelTime(dr.jamTiba)*1 : null,
           dr.jamMulai ? hmToExcelTime(dr.jamMulai)*1 : null,
           dr.jamSelesai ? hmToExcelTime(dr.jamSelesai)*1 : null,
-          dr.waktuPenyelesaian,        // excel time or null
-          dr.jarak,                    // number or null
-          dr.waktuTempuh,              // excel time or null
+          dr.waktuPenyelesaian,
+          dr.jarak,
+          dr.waktuTempuh,
           dr.keterangan
         ];
 
-        // Format jam (H..L) & durasi (M,O)
         ['H','I','J','K','L'].forEach(col => { ws.getCell(col + row.number).numFmt = 'h:mm'; });
         ['M','O'].forEach(col => { ws.getCell(col + row.number).numFmt = '[h]:mm'; });
 
@@ -401,8 +387,7 @@
       totalCell.font = { bold: true };
       totalCell.alignment = { vertical:'middle', horizontal:'center' };
 
-      // Hitung total dari dataRows
-      const sumWP = dataRows.reduce((a,r)=> a + ((r.waktuPenyelesaian ?? 0) * 24*60), 0); // menit
+      const sumWP = dataRows.reduce((a,r)=> a + ((r.waktuPenyelesaian ?? 0) * 24*60), 0);
       const sumJT = dataRows.reduce((a,r)=> a + (Number(r.jarak)||0), 0);
       const sumWT = dataRows.reduce((a,r)=> a + ((r.waktuTempuh ?? 0) * 24*60), 0);
 
@@ -424,7 +409,6 @@
       totalRow.height = 18; totalRow.commit && totalRow.commit();
       rIdx++;
 
-      // paksa Excel calc saat open
       if (wb.calcProperties) wb.calcProperties.fullCalcOnLoad = true;
 
       // ===== Footer tanda tangan =====
@@ -437,6 +421,7 @@
       ws.getCell(`N${sigTop+1}`).font = { bold: true };
       ws.getCell(`N${sigTop+1}`).alignment = { horizontal: 'center', vertical: 'middle' };
 
+      // gunakan teknisiPembuat dari atas (tanpa redeclare)
       ws.getCell(`N${sigTop+5}`).value = teknisiPembuat;
       ws.getCell(`N${sigTop+5}`).font  = { bold: true, underline: true };
       ws.getCell(`N${sigTop+5}`).alignment = { horizontal: 'center', vertical: 'middle' };
@@ -462,52 +447,40 @@
       ws.getCell(`E${sigTop+6}`).font  = { bold: true };
       ws.getCell(`E${sigTop+6}`).alignment = { horizontal: 'center', vertical: 'middle' };
 
-      // spacing tanda tangan
       for(let r=sigTop+2; r<=sigTop+4; r++){ ws.getRow(r).height = 18; }
 
-      
-    // === helper lebar kolom (seragam untuk kolom waktu) ===
-    function applySmartWidths(ws, {
-      wrapCols = [5,6,16],
-      min = 8, max = 48, padding = 2,
-      // min width dasar per kolom A..P (boleh ubah)
-      minAtoP = [22,28,18,28,22,24,16,10,10,10,12,10,10,9,10,30],
-      timeCols = [8,9,10,11,12],   // H..L
-      durationCols = [13,15],      // M & O
-      distanceCol = 14,            // N
-      timeMinWidth = 11,
-      durationMinWidth = 10,
-      distMinWidth = 9
-    } = {}) {
-      // 1) Auto-fit biar teks panjang (lokasi/jenis/detail/keterangan) kebaca
-      autoFitColumns(ws, { min, max, padding, wrapCols });
+      // === smart widths ===
+      function applySmartWidths(ws, {
+        wrapCols = [5,6,16],
+        min = 8, max = 48, padding = 2,
+        minAtoP = [22,28,18,28,22,24,16,10,10,10,12,10,10,9,10,30],
+        timeCols = [8,9,10,11,12],   // H..L
+        durationCols = [13,15],      // M & O
+        distanceCol = 14,            // N
+        timeMinWidth = 11,
+        durationMinWidth = 10,
+        distMinWidth = 9
+      } = {}) {
+        autoFitColumns(ws, { min, max, padding, wrapCols });
 
-      // 2) Pastikan setiap kolom minimal senyaman ini
-      minAtoP.forEach((w, i) => {
-        const col = ws.getColumn(i + 1);
-        col.width = Math.max(col.width || 0, w);
-      });
+        minAtoP.forEach((w, i) => {
+          const col = ws.getColumn(i + 1);
+          col.width = Math.max(col.width || 0, w);
+        });
 
-      // 3) SERAGAMKAN:
-      //    - Ambil width terbesar hasil auto-fit utk H..L, lalu samakan semua
-      const maxTimeW = Math.max(timeMinWidth, ...timeCols.map(i => ws.getColumn(i).width || 0));
-      timeCols.forEach(i => ws.getColumn(i).width = maxTimeW);
+        const maxTimeW = Math.max(timeMinWidth, ...timeCols.map(i => ws.getColumn(i).width || 0));
+        timeCols.forEach(i => ws.getColumn(i).width = maxTimeW);
 
-      //    - Ambil width terbesar utk M & O, samakan
-      const maxDurW = Math.max(durationMinWidth, ...durationCols.map(i => ws.getColumn(i).width || 0));
-      durationCols.forEach(i => ws.getColumn(i).width = maxDurW);
+        const maxDurW = Math.max(durationMinWidth, ...durationCols.map(i => ws.getColumn(i).width || 0));
+        durationCols.forEach(i => ws.getColumn(i).width = maxDurW);
 
-      //    - N (jarak) set minimal nyaman
-      ws.getColumn(distanceCol).width = Math.max(distMinWidth, ws.getColumn(distanceCol).width || 0);
-    }
+        ws.getColumn(distanceCol).width = Math.max(distMinWidth, ws.getColumn(distanceCol).width || 0);
+      }
 
-      // Export
-      // ... setelah tulis data, TOTAL, dan footer tanda tangan
       applySmartWidths(ws);
 
-      // lalu:
+      // Export buffer
       const buf = await wb.xlsx.writeBuffer();
-
       const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
       const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=fileName; a.click(); URL.revokeObjectURL(url);
 
@@ -518,14 +491,24 @@
   function resetMonth(){
     const all=loadReports(); const n=all.filter(r=>r.month===month).length; if(!n) return showToast('Tidak ada data untuk direset.');
     if(!confirm(`Hapus ${n} entri untuk bulan ${month}?`)) return;
-    saveReports(all.filter(r=>r.month!==month)); showToast('Data bulan ini sudah dihapus.'); applyFilters();
+    saveReports(all.filter(r=>r.month!==month));
+    showToast('Data bulan ini sudah dihapus.');
+    applyFilters();
+    pushMirrorSilent();
   }
 
-  // ===== events (CSV & Print REMOVED)
+  // ===== events
   qInput && qInput.addEventListener('input', applyFilters);
   btnExportXlsx && btnExportXlsx.addEventListener('click', exportXLSX);
   btnReset && btnReset.addEventListener('click', resetMonth);
 
-  // init
+  // ===== init: render lokal dulu, lalu tarik dari Drive → merge → render ulang
   applyFilters();
+  document.addEventListener('DOMContentLoaded', async ()=>{
+    try{
+      if (window.MonthlySync?.pull) {
+        await window.MonthlySync.pull(monthlyGetLocal, monthlySetLocal, applyFilters);
+      }
+    }catch{}
+  });
 })();
