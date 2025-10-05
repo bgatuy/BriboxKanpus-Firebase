@@ -1,163 +1,140 @@
-/* drive-sync.js — Bribox Kanpus (2025-10-05)
- * Perbaikan:
- * - Anti double-load (guard)
- * - Scope lengkap (drive.file openid email profile)
- * - Token GIS disuntik ke gapi.client
- * - getProfile pakai OIDC userinfo
- * - Silent connect + fallback, error handling lebih jelas
- * - Console log ringkas (aktifkan via ?debug=1)
- */
+/* drive-sync.js — Pure OAuth + Fetch (tanpa gapi) */
 ;(() => {
-  if (window.__DRIVESYNC_LOADED__) return;           // ⛔ cegah duplikat
+  if (window.__DRIVESYNC_LOADED__) return;
   window.__DRIVESYNC_LOADED__ = true;
 
-  const DEBUG = /[?&]debug=1\b/.test(location.search);
-  const log = (...a) => { if (DEBUG) console.log('[DriveSync]', ...a); };
-
-  // ====== CONFIG ======
+  // ===== CONFIG =====
   const CLIENT_ID = window.__CONFIG?.GOOGLE_CLIENT_ID || '';
-  const API_KEY   = window.__CONFIG?.GOOGLE_API_KEY   || '';
+  if (!CLIENT_ID) console.warn('[DriveSync] GOOGLE_CLIENT_ID kosong di window.__CONFIG');
 
-  if (!CLIENT_ID || !API_KEY) {
-    console.warn('[DriveSync] CLIENT_ID/API_KEY belum diisi. Pastikan config.local.js ada.');
-  }
-
-  // ====== CONSTANTS ======
-  const ROOT_FOLDER_NAME = 'Bribox Kanpus';
-  const SCOPES = [
+  const OAUTH_SCOPE = [
     'https://www.googleapis.com/auth/drive.file',
     'openid', 'email', 'profile'
   ].join(' ');
-  const DISCOVERY_DOCS = ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'];
+  const OAUTH_REDIRECT = location.origin + '/oauth-return.html'; // <— file yang baru kamu tambah
+  const ROOT_FOLDER_NAME = 'Bribox Kanpus';
 
-  // ====== STATE ======
-  let tokenClient = null;
-  let accessToken = null;
+  // ===== STATE =====
+  let ACCESS_TOKEN = null;
   let rootFolderId = null;
   const subfolders = new Map();
   let cachedProfile = null;
 
-  // ====== UTILS ======
-  const $ = (s) => document.querySelector(s);
-
+  // ===== UI =====
+  const $ = s => document.querySelector(s);
   function setAuthUI(logged, profile){
     const bar  = $('#driveConnectBar');
-    const btnC = $('#btnConnectDrive');
+    const btn  = $('#btnConnectDrive');
     const who  = $('#whoami');
     if (bar)  bar.style.display = logged ? 'none' : '';
-    if (btnC) btnC.disabled = false;
+    if (btn)  btn.disabled = false;
     if (who)  who.textContent = logged ? (profile?.email || profile?.name || 'Logged in') : '';
   }
 
-  function ensureScriptsReady() {
-    return new Promise((resolve, reject) => {
-      let doneGapi = !!(window.gapi && gapi.load);
-      let doneGIS  = !!(window.google?.accounts?.oauth2);
-      const t = setInterval(() => {
-        doneGapi = doneGapi || !!(window.gapi && gapi.load);
-        doneGIS  = doneGIS  || !!(window.google?.accounts?.oauth2);
-        if (doneGapi && doneGIS) { clearInterval(t); resolve(); }
-      }, 30);
-      setTimeout(() => { clearInterval(t); if (!doneGapi) return reject(new Error('gapi tidak siap')); if (!doneGIS) return reject(new Error('GIS tidak siap')); }, 8000);
-    });
-  }
-
-  function initGapiClient(){
-    return new Promise((resolve, reject) => {
-      gapi.load('client', () => {
-        gapi.client.init({ apiKey: API_KEY, discoveryDocs: DISCOVERY_DOCS })
-          .then(resolve, reject);
-      });
-    });
-  }
-
-  function ensureTokenClient(){
-    if (tokenClient) return tokenClient;
-    if (!window.google?.accounts?.oauth2) throw new Error('GIS belum siap');
-    tokenClient = google.accounts.oauth2.initTokenClient({
+  // ===== OAUTH (Implicit Flow manual) =====
+  function buildAuthUrl(stateUrl){
+    const p = new URLSearchParams({
       client_id: CLIENT_ID,
-      scope: SCOPES,
-      callback: () => {} // diisi untuk tiap request
+      redirect_uri: OAUTH_REDIRECT,
+      response_type: 'token',
+      scope: OAUTH_SCOPE,
+      include_granted_scopes: 'true',
+      prompt: 'consent',
+      state: stateUrl || location.href
     });
-    return tokenClient;
+    return 'https://accounts.google.com/o/oauth2/v2/auth?' + p.toString();
   }
 
-  function ensureInit(){
-    if (!CLIENT_ID) throw new Error('Missing GOOGLE_CLIENT_ID');
-    if (!API_KEY)   throw new Error('Missing GOOGLE_API_KEY');
-    return ensureScriptsReady().then(initGapiClient).then(ensureTokenClient);
-  }
-
-  function afterToken(resp){
-    if (!resp || resp.error || !resp.access_token) {
-      const msg = resp?.error_description || resp?.error || 'Gagal mendapatkan access_token';
-      throw new Error(msg);
-    }
-    accessToken = resp.access_token;
-    gapi.client.setToken({ access_token: accessToken });   // 🔑 penting
-    log('Token set ke gapi.client');
-    return getProfile().catch(() => null).then(p => {
-      cachedProfile = p || cachedProfile;
-      setAuthUI(true, cachedProfile);
-      return ensureRootFolder();
-    });
+  function openCenteredPopup(url, title, w=520, h=620){
+    const dualScreenLeft = window.screenLeft !== undefined ? window.screenLeft : window.screenX;
+    const dualScreenTop  = window.screenTop  !== undefined ? window.screenTop  : window.screenY;
+    const width  = window.innerWidth  || document.documentElement.clientWidth  || screen.width;
+    const height = window.innerHeight || document.documentElement.clientHeight || screen.height;
+    const left = ((width - w) / 2) + dualScreenLeft;
+    const top  = ((height - h) / 2) + dualScreenTop;
+    const features = `scrollbars=yes,resizable=yes,width=${w},height=${h},top=${top},left=${left}`;
+    return window.open(url, title, features);
   }
 
   async function signIn(){
-    await ensureInit();
+    // 1) Coba ambil token yang mungkin dititipkan oleh oauth-return (redirect full)
+    const pending = sessionStorage.getItem('GDRV_AT');
+    if (pending) {
+      sessionStorage.removeItem('GDRV_AT');
+      ACCESS_TOKEN = pending; await afterLogin(); return;
+    }
+    // 2) Popup flow (tidak butuh third-party cookies)
     return new Promise((resolve, reject) => {
-      try {
-        tokenClient.callback = (resp) => {
-          afterToken(resp).then(() => resolve(resp)).catch(reject);
-        };
-        tokenClient.requestAccessToken({ prompt: 'consent' });
-      } catch (e) { reject(e); }
-    });
-  }
-
-  async function signInSilent(){
-    await ensureInit();
-    return new Promise((resolve, reject) => {
-      try {
-        tokenClient.callback = (resp) => {
-          afterToken(resp).then(() => resolve(resp)).catch(reject);
-        };
-        tokenClient.requestAccessToken({ prompt: 'none' });
-      } catch (e) { reject(e); }
+      const url = buildAuthUrl(location.href);
+      const pop = openCenteredPopup(url, 'Google Login');
+      if (!pop) { // Popup diblok → fallback redirect penuh
+        location.assign(url);
+        reject(new Error('Popup diblok; melakukan redirect.'));
+        return;
+      }
+      const timer = setInterval(() => {
+        if (pop.closed) { clearInterval(timer); reject(new Error('Popup ditutup sebelum login.')); }
+      }, 400);
+      function onMsg(ev){
+        try {
+          if (typeof ev.data !== 'object' || ev.data?.type !== 'GDRV_TOKEN') return;
+          window.removeEventListener('message', onMsg);
+          clearInterval(timer);
+          pop.close();
+          ACCESS_TOKEN = ev.data.access_token || null;
+          if (!ACCESS_TOKEN) { reject(new Error('No access_token from OAuth.')); return; }
+          afterLogin().then(resolve).catch(reject);
+        } catch(e){ clearInterval(timer); reject(e); }
+      }
+      window.addEventListener('message', onMsg);
     });
   }
 
   function signOut(){
-    try { if (accessToken) google.accounts.oauth2.revoke(accessToken); } catch(e){}
-    accessToken = null;
-    cachedProfile = null;
-    gapi.client.setToken(null);
-    rootFolderId = null;
-    subfolders.clear();
+    ACCESS_TOKEN = null; cachedProfile = null;
+    rootFolderId = null; subfolders.clear();
     setAuthUI(false);
   }
 
-  function assertLogged(){
-    if (!accessToken) throw new Error('Belum login Google Drive.');
+  // ===== Fetch helpers =====
+  function authHeaders(extra){
+    if (!ACCESS_TOKEN) throw new Error('Belum login Google Drive.');
+    return Object.assign({ 'Authorization': 'Bearer ' + ACCESS_TOKEN }, extra || {});
+  }
+  async function httpJSON(url, opts){
+    const res = await fetch(url, Object.assign({ headers: authHeaders({ 'Accept': 'application/json' }) }, opts));
+    if (!res.ok) {
+      const txt = await res.text().catch(()=>res.statusText);
+      throw new Error(`HTTP ${res.status}: ${txt}`);
+    }
+    return res.json();
   }
 
-  // Pakai OIDC userinfo (bukan oauth2/v1)
-  async function getProfile(){
-    assertLogged();
-    if (cachedProfile) return cachedProfile;
-    const res = await gapi.client.request({ path: 'https://openidconnect.googleapis.com/v1/userinfo' });
-    cachedProfile = res.result || null;
-    return cachedProfile;
+  // ===== Setelah login: ambil profile & pastikan root folder =====
+  async function afterLogin(){
+    // profile (OIDC)
+    try {
+      const prof = await httpJSON('https://openidconnect.googleapis.com/v1/userinfo');
+      cachedProfile = prof;
+    } catch(e){
+      console.warn('userinfo error:', e);
+      cachedProfile = null;
+    }
+    setAuthUI(true, cachedProfile);
+    await ensureRootFolder();
   }
 
-  // ====== DRIVE HELPERS ======
+  // ===== Drive ops (REST) =====
   async function queryDrive(q, fields){
-    assertLogged();
-    const f = fields || 'files(id,name,mimeType,parents,createdTime,modifiedTime,size)';
-    const res = await gapi.client.drive.files.list({
-      q, spaces: 'drive', pageSize: 1000, fields: 'files(' + f + ')'
+    const p = new URLSearchParams({
+      q, spaces: 'drive', pageSize: '1000',
+      fields: 'files(' + (fields || 'id,name,mimeType,parents,createdTime,modifiedTime,size') + ')'
     });
-    return res.result.files || [];
+    const url = 'https://www.googleapis.com/drive/v3/files?' + p.toString();
+    const res = await fetch(url, { headers: authHeaders() });
+    if (!res.ok) throw new Error('Drive list failed: ' + res.status);
+    const data = await res.json();
+    return data.files || [];
   }
 
   async function ensureRootFolder(){
@@ -165,11 +142,14 @@
     const esc = ROOT_FOLDER_NAME.replace(/'/g, "\\'");
     const list = await queryDrive(`name='${esc}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
     if (list.length) { rootFolderId = list[0].id; return rootFolderId; }
-    const res = await gapi.client.drive.files.create({
-      resource: { name: ROOT_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' },
-      fields: 'id'
+    const res = await fetch('https://www.googleapis.com/drive/v3/files', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ name: ROOT_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' })
     });
-    rootFolderId = res.result.id;
+    if (!res.ok) throw new Error('Create folder failed: ' + res.status);
+    const data = await res.json();
+    rootFolderId = data.id;
     return rootFolderId;
   }
 
@@ -181,75 +161,83 @@
     const esc = mod.replace(/'/g, "\\'");
     const list = await queryDrive(`'${parent}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder' and name='${esc}'`);
     if (list.length){ subfolders.set(mod, list[0].id); return list[0].id; }
-    const res = await gapi.client.drive.files.create({
-      resource: { name: mod, parents: [parent], mimeType: 'application/vnd.google-apps.folder' },
-      fields: 'id'
+    const res = await fetch('https://www.googleapis.com/drive/v3/files', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ name: mod, parents: [parent], mimeType: 'application/vnd.google-apps.folder' })
     });
-    subfolders.set(mod, res.result.id);
-    return res.result.id;
+    if (!res.ok) throw new Error('Create subfolder failed: ' + res.status);
+    const data = await res.json();
+    subfolders.set(mod, data.id);
+    return data.id;
   }
 
   async function uploadPdf(file, contentHash, moduleName){
-    assertLogged();
     if (!file || file.type !== 'application/pdf') throw new Error('Bukan PDF');
     const parent = await ensureSubfolder(moduleName);
     const safeName = (contentHash || Date.now()) + '__' + file.name.replace(/[^\w.\- ()]/g, '_');
-
     const metadata = { name: safeName, mimeType: 'application/pdf', parents: [parent] };
+
+    // Multipart body
     const boundary = '-------314159265358979323846';
-    const delimiter  = '\r\n--' + boundary + '\r\n';
+    const delimiter = '\r\n--' + boundary + '\r\n';
     const closeDelim = '\r\n--' + boundary + '--';
     const metaPart = delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata);
-
     const buf = await file.arrayBuffer();
     const bytes = new Uint8Array(buf);
-    let binary = ''; const chunk = 0x8000;
-    for (let i=0;i<bytes.length;i+=chunk){ binary += String.fromCharCode.apply(null, bytes.subarray(i, i+chunk)); }
-    const base64Data = btoa(binary);
-    const filePart = delimiter + 'Content-Type: application/pdf\r\nContent-Transfer-Encoding: base64\r\n\r\n' + base64Data;
+    let bin = ''; const chunk = 0x8000;
+    for (let i=0;i<bytes.length;i+=chunk){ bin += String.fromCharCode.apply(null, bytes.subarray(i,i+chunk)); }
+    const base64 = btoa(bin);
+    const filePart = delimiter + 'Content-Type: application/pdf\r\nContent-Transfer-Encoding: base64\r\n\r\n' + base64;
     const body = metaPart + filePart + closeDelim;
 
-    const res = await gapi.client.request({
-      path: '/upload/drive/v3/files',
+    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method: 'POST',
-      params: { uploadType: 'multipart' },
-      headers: { 'Content-Type': 'multipart/related; boundary=' + boundary },
+      headers: authHeaders({ 'Content-Type': 'multipart/related; boundary=' + boundary }),
       body
     });
-    return { id: res.result.id, name: safeName };
+    if (!res.ok) throw new Error('Upload failed: ' + res.status);
+    const data = await res.json();
+    return { id: data.id, name: safeName };
   }
 
   async function findByHashPrefix(hash, moduleName){
-    assertLogged();
     const parent = await ensureSubfolder(moduleName);
     const esc = String(hash || '').replace(/'/g, "\\'");
     const files = await queryDrive(`'${parent}' in parents and trashed=false and name contains '${esc}'`);
     const prefix = String(hash || '') + '__';
-    return files.find(f => (f.name || '').indexOf(prefix) === 0) || null;
+    return files.find(f => (f.name || '').startsWith(prefix)) || null;
   }
 
-  // ====== PUBLIC API ======
+  // ===== PUBLIC API =====
   window.DriveSync = {
-    signIn, signInSilent, signOut,
-    isLogged: () => !!accessToken,
-    getProfile,
+    signIn, signOut,
+    isLogged: () => !!ACCESS_TOKEN,
+    getProfile: async () => {
+      if (!ACCESS_TOKEN) throw new Error('Belum login');
+      if (cachedProfile) return cachedProfile;
+      const prof = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: authHeaders() }).then(r=>r.json());
+      cachedProfile = prof; return prof;
+    },
     ensureFolder: ensureRootFolder,
-    uploadPdf,
-    findByHashPrefix
+    uploadPdf, findByHashPrefix
   };
 
-  // Auto-wire tombol + silent connect
-  document.addEventListener('DOMContentLoaded', async () => {
+  // ===== Wire tombol =====
+  document.addEventListener('DOMContentLoaded', () => {
     setAuthUI(false);
     const btn = $('#btnConnectDrive');
     if (btn) {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
         try { await signIn(); }
-        catch (e){ alert('Gagal connect Drive.\n' + (e?.message || e)); }
+        catch (e) { alert('Gagal connect Drive.\n' + (e?.message || e)); }
         finally { btn.disabled = false; }
       });
     }
-    try { await signInSilent(); } catch { /* biarkan bar tampil */ }
+
+    // Jika sebelumnya ada token via redirect full, proses di sini
+    const t = sessionStorage.getItem('GDRV_AT');
+    if (t) { sessionStorage.removeItem('GDRV_AT'); ACCESS_TOKEN = t; afterLogin().catch(console.error); }
   });
 })();

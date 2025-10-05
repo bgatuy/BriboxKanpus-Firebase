@@ -1,0 +1,28 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Google OAuth Return</title>
+<script>
+/* Ambil access_token dari fragment lalu kirim ke opener (popup) atau simpan dan kembali ke state */
+(function () {
+  const hash = new URLSearchParams(location.hash.slice(1));
+  const token = hash.get('access_token');
+  const state = hash.get('state') || '/';
+  if (!token) {
+    document.body.textContent = 'OAuth gagal: access_token tidak ada.';
+    return;
+  }
+  try {
+    // Kembalikan token ke opener bila dibuka sebagai popup
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage({ type: 'GDRV_TOKEN', access_token: token }, state.split('#')[0].split('?')[0]);
+      window.close();
+      return;
+    }
+  } catch(e) { /* noop */ }
+
+  // Fallback: pakai sessionStorage lalu kembali ke halaman asal
+  sessionStorage.setItem('GDRV_AT', token);
+  location.replace(state);
+})();
+</script>
+<body>Memproses login Google…</body>
