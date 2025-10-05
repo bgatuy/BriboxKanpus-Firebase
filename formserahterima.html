@@ -180,36 +180,30 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
   <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
 
-  <!-- Auth + Guard -->
+ <!-- Auth + Guard -->
   <script defer src="auth.js"></script>
-  <script>
-    document.addEventListener('DOMContentLoaded', () => Auth.enforce());
-  </script>
+  <script>document.addEventListener('DOMContentLoaded',()=>Auth.enforce());</script>
 
-  <!-- Google Identity + Drive (FST pakai Drive) -->
+  <!-- Google SDKs -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://apis.google.com/js/api.js" async defer></script>
+
+  <!-- Drive -->
   <script defer src="drive-sync.js"></script>
   <script defer src="drive-queue.js"></script>
   <script>
-    // Auto-connect Drive silently; show connect bar if first-time
-    document.addEventListener('DOMContentLoaded', async () => {
-      try {
-        if (window.DriveSync && !DriveSync.isLogged()) {
-          await DriveSync.signInSilent();
-        }
-      } catch {
-        const bar = document.getElementById('driveConnectBar');
-        if (bar) bar.style.display = '';
-      }
-      document.getElementById('btnConnectDrive')?.addEventListener('click', async () => {
-        try{
-          await DriveSync.signIn();
-          document.getElementById('driveConnectBar')?.remove();
-          if (window.DriveQueue) DriveQueue.flush();
-        }catch(e){ alert('Gagal connect Drive. Coba lagi.'); }
+    const whenGIS=new Promise(r=>{if(window.google?.accounts?.oauth2)return r();const t=setInterval(()=>{if(window.google?.accounts?.oauth2){clearInterval(t);r();}},50);});
+    const whenGapi=new Promise(r=>{if(window.gapi?.client)return r();const t=setInterval(()=>{if(window.gapi?.client){clearInterval(t);r();}},50);});
+    document.addEventListener('DOMContentLoaded',async()=>{
+      const bar=document.getElementById('driveConnectBar');
+      try{ await Promise.all([whenGIS,whenGapi]); if(window.DriveSync && !DriveSync.isLogged()) await DriveSync.signInSilent(); }
+      catch(_){}
+      if (bar && (!window.DriveSync || !DriveSync.isLogged())) bar.style.display='';
+      document.getElementById('btnConnectDrive')?.addEventListener('click', async ()=>{
+        try{ await whenGIS; await whenGapi; await DriveSync.signIn(); bar?.remove(); }
+        catch(e){ alert('Gagal connect Drive.\n'+(e?.error_description||e?.message||'')); if(bar) bar.style.display=''; }
       });
-      if (window.DriveQueue) DriveQueue.init();
+      if (window.DriveQueue?.init) DriveQueue.init();
     });
   </script>
 

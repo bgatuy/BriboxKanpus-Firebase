@@ -1,69 +1,61 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="id">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>BRIBOX KANPUS</title>
-  <link rel="icon" type="image/png" href="./favicon.png" />
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>BRIBOX KANPUS • AppSheet</title>
+  <link rel="icon" type="image/png" href="favicon.png"/>
   <link rel="stylesheet" href="style.css"/>
-  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
 
-    <!-- === CONFIG (tries local, fallback to sample) === -->
-    <script src="config.local.js"></script>
-    <script>if (!window.__CONFIG) document.write('<script src="config.sample.js"><\/script>');</script>
-    <!-- === Google SDKs === -->
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script src="https://apis.google.com/js/api.js" async defer></script>
-    <!-- === Drive helper === -->
-    <script src="drive-sync.js" defer></script>
-
-  </head>
-<body>
+  <!-- CONFIG -->
+  <script src="config.local.js"></script>
+  <script>if(!window.__CONFIG){document.write('<script src="config.sample.js"><\/script>')}</script>
+</head>
+<body data-page="appsheet">
   <div class="dashboard">
     <aside class="sidebar">
-      <h2 class="logo">
-      <img src="favicon.png" alt="Logo" class="logo-icon" />
-       BRIBOX KANPUS</h2>
-       
+      <h2 class="logo"><img src="favicon.png" class="logo-icon" alt=""/>BRIBOX KANPUS</h2>
       <nav>
         <a href="trackmate.html">📋 Trackmate</a>
         <a href="appsheet.html" class="active">📋 AppSheet</a>
         <a href="formserahterima.html">📝 Form Serah Terima</a>
-        <!-- Parent collapsible Monthly Report -->
         <button class="nav-group" type="button"
-        aria-controls="nav-monthly" aria-expanded="false"
-        onclick="
-        const t=this, m=document.getElementById('nav-monthly');
-        const ex=t.getAttribute('aria-expanded')==='true';
-        t.setAttribute('aria-expanded', String(!ex)); 
-        m.hidden=ex;
-      ">📅 Monthly Report</button>
-
-      <!-- Submenu Monthly -->
+          aria-controls="nav-monthly" aria-expanded="false"
+          onclick="const t=this,m=document.getElementById('nav-monthly');const ex=t.getAttribute('aria-expanded')==='true';t.setAttribute('aria-expanded', String(!ex));m.hidden=ex;">📅 Monthly Report</button>
         <div id="nav-monthly" class="submenu" hidden>
           <a href="monthly-report/monthly-form.html">Monthly Report Form</a>
           <a href="monthly-report/monthly-data.html">Monthly Report Data</a>
         </div>
       </nav>
-      <div class="sidebar-credit" aria-label="Project credit">
-        Web App Created By BangAtuy - 2025
-      </div>
+      <div class="sidebar-credit">Web App Created By BangAtuy - 2025</div>
     </aside>
 
     <main class="main">
       <header class="dashboard-header">
-        <button class="sidebar-toggle-btn" onclick="toggleSidebar()">☰</button>
-        <h1><span class="material-icons">description</span> AppSheet</h1>
-        <button id="toggleModeBtn" onclick="toggleDarkMode()">🌙</button>
+        <button class="sidebar-toggle-btn" type="button" onclick="document.querySelector('.sidebar')?.classList.toggle('hidden')">☰</button>
+        <h1>AppSheet</h1>
+        <div class="header-actions">
+          <button id="btnAuth" class="btn" type="button">Login Google</button>
+          <button id="toggleModeBtn" type="button" onclick="document.body.classList.toggle('dark-mode')">🌙</button>
+        </div>
       </header>
+
+      <div id="driveConnectBar" class="drive-connect-bar" style="display:none; margin-bottom:12px">
+        <div class="card" style="display:flex; gap:10px; align-items:center; padding:10px;">
+          <span class="material-icons" aria-hidden="true">cloud_off</span>
+          <div style="flex:1"><b>Google Drive belum tersambung.</b><div style="font-size:12px;opacity:.8">Klik untuk menyambungkan.</div></div>
+          <button id="btnConnectDrive" type="button" class="primary">Connect Google Drive</button>
+        </div>
+      </div>
 
       <section class="card">
         <h3>Upload Form PDF Kalian Disini Lalu Pilih Lokasi Divisi!</h3>
-        
+
         <label for="pdfFile" class="upload-label">
-          <span class="material-icons">picture_as_pdf</span> Pilih File PDF
+          <span class="material-icons" aria-hidden="true">picture_as_pdf</span>
+          Pilih File PDF
         </label>
-        <input type="file" id="pdfFile" accept="application/pdf"/>
+        <input type="file" id="pdfFile" accept="application/pdf" />
 
         <div class="form-group">
           <label for="inputLokasi">Pilih Lokasi Divisi :</label>
@@ -143,41 +135,42 @@
             <option value="GTI Ragunan Lt. 6">GTI Ragunan Lt. 6</option>
             <option value="GTI Ragunan Lt. 7">GTI Ragunan Lt. 7</option>
             <option value="GTI Ragunan Lt. 8">GTI Ragunan Lt. 8</option>
-        </select>
-      </div>
+          </select>
+        </div>
 
         <pre id="output" class="output-preview">Text akan muncul di sini...</pre>
-        <button id="copyBtn" class="primary">Copy</button>
+        <button id="copyBtn" class="btn-copy primary" type="button">Copy</button>
       </section>
     </main>
   </div>
-  
+
+  <!-- Auth + Guard -->
+  <script defer src="auth.js"></script>
+  <script>document.addEventListener('DOMContentLoaded',()=>Auth.enforce());</script>
+
+  <!-- Google SDKs -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://apis.google.com/js/api.js" async defer></script>
+
+  <!-- Drive -->
+  <script defer src="drive-sync.js"></script>
+  <script defer src="drive-queue.js"></script>
   <script>
-    if (localStorage.getItem('darkMode') === 'true') {
-      document.body.classList.add('dark-mode');
-    }
-    document.addEventListener('DOMContentLoaded', () => {
-      const toggleBtn = document.getElementById('toggleModeBtn');
-      if (toggleBtn) {
-        toggleBtn.textContent = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
-      }
+    const whenGIS=new Promise(r=>{if(window.google?.accounts?.oauth2)return r();const t=setInterval(()=>{if(window.google?.accounts?.oauth2){clearInterval(t);r();}},50);});
+    const whenGapi=new Promise(r=>{if(window.gapi?.client)return r();const t=setInterval(()=>{if(window.gapi?.client){clearInterval(t);r();}},50);});
+    document.addEventListener('DOMContentLoaded',async()=>{
+      const bar=document.getElementById('driveConnectBar');
+      try{ await Promise.all([whenGIS,whenGapi]); if(window.DriveSync && !DriveSync.isLogged()) await DriveSync.signInSilent(); }
+      catch(_){}
+      if (bar && (!window.DriveSync || !DriveSync.isLogged())) bar.style.display='';
+      document.getElementById('btnConnectDrive')?.addEventListener('click', async ()=>{
+        try{ await whenGIS; await whenGapi; await DriveSync.signIn(); bar?.remove(); }
+        catch(e){ alert('Gagal connect Drive.\n'+(e?.error_description||e?.message||'')); if(bar) bar.style.display=''; }
+      });
+      if (window.DriveQueue?.init) DriveQueue.init();
     });
-    function toggleDarkMode() {
-      const isDark = document.body.classList.toggle('dark-mode');
-      localStorage.setItem('darkMode', isDark);
-      document.getElementById('toggleModeBtn').textContent = isDark ? '☀️' : '🌙';
-    }
-    function toggleSidebar() {
-      document.querySelector('.sidebar').classList.toggle('hidden');
-    }
   </script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
-  <script>
-    if (window.pdfjsLib && (!pdfjsLib.GlobalWorkerOptions.workerSrc || pdfjsLib.GlobalWorkerOptions.workerSrc === '')) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc ='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
-  }
-  </script>
-  
+
   <script src="appsheet.js"></script>
 </body>
 </html>
