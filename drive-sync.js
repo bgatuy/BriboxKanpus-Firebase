@@ -7,8 +7,12 @@
     console.warn('[DriveSync] CLIENT_ID/API_KEY belum diisi. Pastikan config.local.js ada.');
   }
 
+  // ====== CONSTANTS ======
   var ROOT_FOLDER_NAME = 'Bribox Kanpus';
-  var SCOPES = 'https://www.googleapis.com/auth/drive.file openid email profile';
+  var SCOPES = [
+    'https://www.googleapis.com/auth/drive.file',
+    'openid','email','profile'
+  ].join(' ');
   var DISCOVERY_DOCS = ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'];
 
   // ====== STATE ======
@@ -16,6 +20,7 @@
   var accessToken = null;
   var rootFolderId = null;
   var subfolders = new Map();
+  var cachedProfile = null;
 
   // ====== UTILS ======
   function $(sel){ return document.querySelector(sel); }
@@ -23,24 +28,20 @@
     var inBtn = $('#btnSignIn'), outBtn = $('#btnSignOut'), who = $('#whoami');
     if (inBtn)  inBtn.style.display  = logged ? 'none' : '';
     if (outBtn) outBtn.style.display = logged ? '' : 'none';
-    if (who) who.textContent = logged ? (profile && (profile.email || profile.name) || 'Logged in') : '';
+    if (who)    who.textContent      = logged ? ((profile && (profile.email || profile.name)) || 'Logged in') : '';
   }
 
   function waitGapi(){
     return new Promise(function(res, rej){
       if (window.gapi && gapi.load) return res();
-      var t = setInterval(function(){
-        if (window.gapi && gapi.load){ clearInterval(t); res(); }
-      }, 50);
+      var t = setInterval(function(){ if (window.gapi && gapi.load){ clearInterval(t); res(); } }, 50);
       setTimeout(function(){ clearInterval(t); rej(new Error('gapi tidak pernah siap')); }, 7000);
     });
   }
   function waitGIS(){
     return new Promise(function(res, rej){
-      if (window.google && google.accounts && google.accounts.oauth2) return res();
-      var t = setInterval(function(){
-        if (window.google && google.accounts && google.accounts.oauth2){ clearInterval(t); res(); }
-      }, 50);
+      if (window.google?.accounts?.oauth2) return res();
+      var t = setInterval(function(){ if (window.google?.accounts?.oauth2){ clearInterval(t); res(); } }, 50);
       setTimeout(function(){ clearInterval(t); rej(new Error('GIS tidak pernah siap')); }, 7000);
     });
   }
@@ -57,9 +58,7 @@
   }
 
   function ensureTokenClient(){
-    if (!(window.google && google.accounts && google.accounts.oauth2)){
-      throw new Error('Google Identity Services belum siap.');
-    }
+    if (!window.google?.accounts?.oauth2) throw new Error('Google Identity Services belum siap.');
     if (tokenClient) return tokenClient;
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: CLIENT_ID,
@@ -71,27 +70,33 @@
 
   function ensureInit(){
     if (!CLIENT_ID) throw new Error('Missing GOOGLE_CLIENT_ID');
-    if (!API_KEY) throw new Error('Missing GOOGLE_API_KEY');
-    return gapiInit().then(function(){ ensureTokenClient(); });
+    if (!API_KEY)   throw new Error('Missing GOOGLE_API_KEY');
+    return gapiInit().then(ensureTokenClient);
   }
 
   // ====== AUTH ======
+  function handleToken(resp, resolve, reject){
+    if (!resp || resp.error || !resp.access_token){
+      reject(new Error(resp?.error_description || resp?.error || 'Gagal mendapatkan access_token'));
+      return;
+    }
+    accessToken = resp.access_token;
+    gapi.client.setToken({ access_token: accessToken }); // penting
+    Promise.resolve()
+      .then(getProfile).catch(function(){ return null; })
+      .then(function(prof){
+        cachedProfile = prof || cachedProfile;
+        setAuthUI(true, cachedProfile);
+        return ensureRootFolder();
+      })
+      .then(function(){ resolve(resp); })
+      .catch(reject);
+  }
+
   function signIn(){
     return ensureInit().then(function(){
       return new Promise(function(resolve, reject){
-        tokenClient.callback = function(resp){
-          if (!resp || resp.error || !resp.access_token){ reject(resp || new Error('Token kosong')); return; }
-          accessToken = resp.access_token;
-          gapi.client.setToken({ access_token: accessToken }); // penting
-          Promise.resolve()
-            .then(getProfile).catch(function(){ return null; })
-            .then(function(prof){
-              setAuthUI(true, prof);
-              return ensureRootFolder();
-            })
-            .then(function(){ resolve(resp); })
-            .catch(reject);
-        };
+        tokenClient.callback = function(resp){ handleToken(resp, resolve, reject); };
         try { tokenClient.requestAccessToken({ prompt: 'consent' }); }
         catch(e){ reject(e); }
       });
@@ -101,19 +106,7 @@
   function signInSilent(){
     return ensureInit().then(function(){
       return new Promise(function(resolve, reject){
-        tokenClient.callback = function(resp){
-          if (!resp || resp.error || !resp.access_token){ reject(new Error((resp && resp.error_description) || 'Silent token gagal')); return; }
-          accessToken = resp.access_token;
-          gapi.client.setToken({ access_token: accessToken }); // penting
-          Promise.resolve()
-            .then(getProfile).catch(function(){ return null; })
-            .then(function(prof){
-              setAuthUI(true, prof);
-              return ensureRootFolder();
-            })
-            .then(function(){ resolve(resp); })
-            .catch(reject);
-        };
+        tokenClient.callback = function(resp){ handleToken(resp, resolve, reject); };
         try { tokenClient.requestAccessToken({ prompt: 'none' }); }
         catch(e){ reject(e); }
       });
@@ -121,9 +114,11 @@
   }
 
   function signOut(){
-    if (!accessToken) return;
-    try { google.accounts.oauth2.revoke(accessToken); } catch(e){}
+    if (accessToken) {
+      try { google.accounts.oauth2.revoke(accessToken); } catch(e){}
+    }
     accessToken = null;
+    cachedProfile = null;
     gapi.client.setToken(null);
     rootFolderId = null;
     subfolders.clear();
@@ -131,11 +126,15 @@
   }
 
   function getProfile(){
-    if (!accessToken) return Promise.reject(new Error('Belum login Drive.'));
+    if (cachedProfile) return Promise.resolve(cachedProfile);
+    if (!accessToken)  return Promise.reject(new Error('Belum login Drive.'));
+    // Pakai endpoint OIDC agar sesuai scope openid/email/profile
     return gapi.client.request({
-      path: 'https://www.googleapis.com/oauth2/v1/userinfo',
-      params: { alt: 'json' }
-    }).then(function(res){ return res.result; });
+      path: 'https://openidconnect.googleapis.com/v1/userinfo'
+    }).then(function(res){
+      cachedProfile = res.result || null;
+      return cachedProfile;
+    });
   }
 
   // ====== DRIVE HELPERS ======
@@ -152,23 +151,17 @@
     var esc = ROOT_FOLDER_NAME.replace(/'/g, "\\'");
     return queryDrive("name='" + esc + "' and mimeType='application/vnd.google-apps.folder' and trashed=false")
       .then(function(list){
-        if (list.length){
-          rootFolderId = list[0].id;
-          return rootFolderId;
-        }
+        if (list.length){ rootFolderId = list[0].id; return rootFolderId; }
         return gapi.client.drive.files.create({
           resource: { name: ROOT_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' },
           fields: 'id'
-        }).then(function(res){
-          rootFolderId = res.result.id;
-          return rootFolderId;
-        });
+        }).then(function(res){ rootFolderId = res.result.id; return rootFolderId; });
       });
   }
 
   function ensureSubfolder(mod){
     mod = String(mod || '').trim();
-    if (!mod) return Promise.resolve(null);
+    if (!mod) return ensureRootFolder();
     if (subfolders.has(mod)) return Promise.resolve(subfolders.get(mod));
     return ensureRootFolder().then(function(parent){
       var esc = mod.replace(/'/g, "\\'");
@@ -178,20 +171,14 @@
           return gapi.client.drive.files.create({
             resource: { name: mod, parents: [parent], mimeType: 'application/vnd.google-apps.folder' },
             fields: 'id'
-          }).then(function(res){
-            subfolders.set(mod, res.result.id);
-            return res.result.id;
-          });
+          }).then(function(res){ subfolders.set(mod, res.result.id); return res.result.id; });
         });
     });
   }
 
   function uploadPdf(file, contentHash, moduleName){
     if (!file || file.type !== 'application/pdf') return Promise.reject(new Error('Bukan PDF'));
-
-    var parentPromise = moduleName ? ensureSubfolder(moduleName) : ensureRootFolder();
-
-    return parentPromise.then(function(parent){
+    return ensureSubfolder(moduleName).then(function(parent){
       var safeName = (contentHash || Date.now()) + '__' + file.name.replace(/[^\w.\- ()]/g,'_');
       var metadata = { name: safeName, mimeType: 'application/pdf', parents: [parent] };
 
@@ -202,7 +189,7 @@
       var metaPart = delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata);
 
       return file.arrayBuffer().then(function(buf){
-        // base64 encode
+        // base64 encode manual
         var bytes = new Uint8Array(buf);
         var binary = '';
         var chunk = 0x8000;
@@ -220,16 +207,13 @@
           params: { uploadType: 'multipart' },
           headers: { 'Content-Type': 'multipart/related; boundary=' + boundary },
           body: body
-        }).then(function(res){
-          return { id: res.result.id, name: safeName };
-        });
+        }).then(function(res){ return { id: res.result.id, name: safeName }; });
       });
     });
   }
 
   function findByHashPrefix(hash, moduleName){
-    var parentPromise = moduleName ? ensureSubfolder(moduleName) : ensureRootFolder();
-    return parentPromise.then(function(parent){
+    return ensureSubfolder(moduleName).then(function(parent){
       var esc = String(hash || '').replace(/'/g, "\\'");
       return queryDrive("'" + parent + "' in parents and trashed=false and name contains '" + esc + "'")
         .then(function(files){

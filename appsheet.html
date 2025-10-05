@@ -40,6 +40,18 @@
         </div>
       </header>
 
+      <!-- Drive connect hint (muncul hanya jika silent connect gagal) -->
+      <div id="driveConnectBar" class="drive-connect-bar" style="display:none; margin-bottom:12px">
+        <div class="card" style="display:flex; gap:10px; align-items:center; padding:10px;">
+          <span class="material-icons" aria-hidden="true">cloud_off</span>
+          <div style="flex:1">
+            <b>Google Drive belum tersambung.</b>
+            <div style="font-size:12px;opacity:.8">Klik sekali untuk menyambungkan agar file tersimpan ke Drive.</div>
+          </div>
+          <button id="btnConnectDrive" type="button" class="primary">Connect Google Drive</button>
+        </div>
+      </div>
+
       <section class="card">
         <h3>Upload Form PDF Kalian Disini Lalu Pilih Lokasi Divisi!</h3>
 
