@@ -3,13 +3,3 @@ config.local.js
 firebase.json
 
 node_modules
-
-package.json
-
-package-lock.json
-
-.firebase
-
-.firebaserc
-
-404.html
