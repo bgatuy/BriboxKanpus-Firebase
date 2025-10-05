@@ -181,7 +181,9 @@ window.addEventListener('pagehide', () => {
   try { if (db) { db.close(); db = null; } } catch {}
 });
 
-/** === BARU === simpan blob PDF keyed by contentHash (overwrite-safe) */
+/** === BARU (patched) === simpan blob PDF keyed by contentHash (overwrite-safe)
+ *  Sekaligus auto-calibrate agar `meta` ikut tersimpan seperti sistem lama.
+ */
 async function saveBlobByHash(fileOrBlob, contentHash) {
   const blob = fileOrBlob instanceof Blob ? fileOrBlob : null;
   if (!blob) throw new Error("saveBlobByHash: argumen harus File/Blob");
@@ -192,6 +194,17 @@ async function saveBlobByHash(fileOrBlob, contentHash) {
   const database = await ensureDb();
   if (!database) throw new Error("IndexedDB tidak tersedia / gagal dibuka");
 
+  // tambahkan kalibrasi (sama spiritnya dgn savePdfToIndexedDB_keepSchema)
+  let meta = null;
+  try {
+    const buf = await blob.arrayBuffer();
+    if (typeof autoCalibratePdf === "function") {
+      meta = await autoCalibratePdf(buf); // { x, y, dx, dy, linesUK, linesSOL, v }
+    }
+  } catch (e) {
+    console.warn("autoCalibrate gagal (saveBlobByHash):", e);
+  }
+
   return new Promise((resolve, reject) => {
     const tx = database.transaction([STORE_BLOBS], "readwrite");
     const store = tx.objectStore(STORE_BLOBS);
@@ -201,7 +214,8 @@ async function saveBlobByHash(fileOrBlob, contentHash) {
       name: (/** @type {File} */(fileOrBlob)).name || "document.pdf",
       size: blob.size,
       dateAdded: new Date().toISOString(),
-      data: blob
+      data: blob,
+      meta  // penting: ikut simpan meta di store baru
     };
 
     const req = store.put(value);        // put = overwrite (tanpa double)
@@ -488,8 +502,8 @@ copyBtn?.addEventListener("click", async () => {
     try {
       await Promise.race([
         (async () => {
-          await savePdfToIndexedDB_keepSchema(file, { contentHash });  // simpan file asli + hash + meta
-          await saveBlobByHash(file, contentHash);                      // juga ke store baru keyed by hash
+          await savePdfToIndexedDB_keepSchema(file, { contentHash });  // simpan file asli + hash + meta (store lama)
+          await saveBlobByHash(file, contentHash);                      // simpan juga ke store baru (ikut meta)
         })(),
         new Promise((_, rej) => setTimeout(() => rej(new Error("IDB timeout")), TIMEOUT_MS))
       ]);
@@ -560,3 +574,51 @@ function showToast(message, duration = 3000, variant = "success") {
     el.classList.remove("show");
   };
 }
+
+/* ========= Debug & Migrasi (opsional) ========= */
+async function debugListPDF() {
+  const database = await ensureDb();
+  const out = { pdfs: [], pdfBlobs: [] };
+
+  await new Promise(res => {
+    const tx = database.transaction([STORE_NAME], 'readonly');
+    const st = tx.objectStore(STORE_NAME);
+    const req = st.getAll();
+    req.onsuccess = () => { out.pdfs = (req.result || []).map(v => ({ name:v.name, hash:v.contentHash, hasMeta: !!v.meta })); res(); };
+    req.onerror = () => res();
+  });
+
+  await new Promise(res => {
+    const tx = database.transaction([STORE_BLOBS], 'readonly');
+    const st = tx.objectStore(STORE_BLOBS);
+    const req = st.getAll();
+    req.onsuccess = () => { out.pdfBlobs = (req.result || []).map(v => ({ name:v.name, hash:v.contentHash, hasMeta: !!v.meta })); res(); };
+    req.onerror = () => res();
+  });
+
+  console.table(out.pdfs); console.table(out.pdfBlobs);
+}
+window.debugListPDF = debugListPDF;
+
+async function migrateFillMetaPdfBlobs() {
+  const database = await ensureDb();
+  const tx = database.transaction([STORE_BLOBS], 'readwrite');
+  const st = tx.objectStore(STORE_BLOBS);
+  const req = st.getAll();
+  req.onsuccess = async () => {
+    const rows = req.result || [];
+    for (const row of rows) {
+      if (row && row.data instanceof Blob && row.data.type === 'application/pdf' && !row.meta) {
+        try {
+          const buf = await row.data.arrayBuffer();
+          const meta = typeof autoCalibratePdf === "function" ? await autoCalibratePdf(buf) : null;
+          if (meta) {
+            row.meta = meta;
+            await new Promise(r2 => { const put = st.put(row); put.onsuccess = r2; put.onerror = r2; });
+          }
+        } catch(e) { console.warn('migrate meta fail:', e); }
+      }
+    }
+  };
+}
+window.migrateFillMetaPdfBlobs = migrateFillMetaPdfBlobs;
