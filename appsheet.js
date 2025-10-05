@@ -12,51 +12,6 @@ async function sha256File(file) {
   }
 }
 
-
-document.addEventListener('DOMContentLoaded', () => {
-  const pdfInput  = document.getElementById('pdfFile');
-  const lokasiSel = document.getElementById('inputLokasi');
-  const output    = document.getElementById('output'); // di AppSheet kamu juga punya <pre id="output">
-
-  async function sha256Hex(ab){
-    const h = await crypto.subtle.digest('SHA-256', ab);
-    return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join('');
-  }
-
-  async function maybeUpload(){
-    const file   = pdfInput?.files?.[0];
-    const lokasi = (lokasiSel?.value || '').trim();
-    if (!file || !lokasi) return;
-    if (!DriveSync?.isLogged?.()) { alert('Sambungkan Google Drive dulu.'); return; }
-
-    output && (output.textContent = 'Menghitung hash & menyiapkan upload...');
-    const hash = await sha256Hex(await file.arrayBuffer());
-
-    try {
-      const exist = await DriveSync.findByHashPrefix(hash, lokasi);
-      let meta;
-      if (exist) {
-        meta = { id: exist.id, name: exist.name };
-        output && (output.textContent = 'File sudah ada, tidak diupload ulang.');
-      } else {
-        output && (output.textContent = 'Mengupload ke Drive...');
-        meta = await DriveSync.uploadPdf(file, hash, lokasi);
-        output && (output.textContent = 'Upload selesai.');
-      }
-      const url = `https://drive.google.com/file/d/${meta.id}/view`;
-      output && (output.textContent += `\nNama: ${meta.name}\nLink: ${url}`);
-    } catch (e) {
-      output && (output.textContent = 'Gagal upload: ' + (e?.message || e));
-      console.error('[upload error]', e);
-    }
-  }
-
-  pdfInput?.addEventListener('change', maybeUpload);
-  lokasiSel?.addEventListener('change', maybeUpload);
-});
-
-
-
 /* ========= SIDEBAR ========= */
 const sidebar   = document.querySelector('.sidebar');
 const overlay   = document.getElementById('sidebarOverlay') || document.querySelector('.sidebar-overlay');

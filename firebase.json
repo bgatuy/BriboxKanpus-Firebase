@@ -4,12 +4,7 @@
     "public": ".",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "headers": [
-      {
-        "source": "/oauth-return.html",
-        "headers": [
-          { "key": "Cache-Control", "value": "no-store, no-cache, max-age=0, must-revalidate" }
-        ]
-      }
+      { "source": "/oauth-return.html", "headers": [{ "key": "Cache-Control", "value": "no-store, no-cache, max-age=0, must-revalidate" }] }
     ],
     "rewrites": [
       { "source": "/oauth-return.html", "destination": "/oauth-return.html" },

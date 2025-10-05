@@ -83,28 +83,6 @@ function ensureLibsOrThrow(opts = { requireJsPDF: false, requirePDFLib: true, re
   if (opts.requirePdfjs && !window.pdfjsLib?.getDocument) throw new Error("pdf.js belum dimuat.");
 }
 
-
-async function sha256Hex(ab){
-  const h = await crypto.subtle.digest('SHA-256', ab);
-  return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join('');
-}
-
-async function uploadGeneratedPDF(pdfBlobOrU8, baseName, folder='Form Serah Terima'){
-  if (!DriveSync?.isLogged?.()) { alert('Sambungkan Google Drive dulu.'); return; }
-
-  const blob = pdfBlobOrU8 instanceof Blob ? pdfBlobOrU8 : new Blob([pdfBlobOrU8], { type:'application/pdf' });
-  const ab   = await blob.arrayBuffer();
-  const hash = await sha256Hex(ab);
-  const file = new File([ab], (baseName || 'FormSerahTerima') + '.pdf', { type: 'application/pdf' });
-
-  const exist = await DriveSync.findByHashPrefix(hash, folder);
-  let meta = exist ? { id: exist.id, name: exist.name } : await DriveSync.uploadPdf(file, hash, folder);
-  alert('PDF tersimpan di Drive:\nhttps://drive.google.com/file/d/' + meta.id + '/view');
-  return meta;
-}
-
-
-
 /********************
  *   DROPDOWN SAVE  *
  ********************/

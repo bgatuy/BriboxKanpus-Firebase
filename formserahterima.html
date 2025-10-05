@@ -1,52 +1,37 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>BRIBOX KANPUS • Form Serah Terima</title>
-  <link rel="icon" type="image/png" href="./favicon.png" />
+  <link rel="icon" type="image/png" href="./favicon.png"/>
   <link rel="stylesheet" href="style.css"/>
-  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet"/>
 
-    <!-- === CONFIG (local dulu, fallback ke sample) === -->
+  <!-- Config -->
   <script src="config.local.js"></script>
-  <script>if (!window.__CONFIG) document.write('<script src="config.sample.js"><\/script>');</script>
-
-  </head>
+  <script>if(!window.__CONFIG)document.write('<script src="config.sample.js"><\/script>');</script>
+</head>
 <body data-page="serah">
   <div class="dashboard">
     <aside class="sidebar">
-      <h2 class="logo">
-        <img src="favicon.png" alt="Logo" class="logo-icon" />
-        BRIBOX KANPUS
-      </h2>
-
+      <h2 class="logo"><img src="favicon.png" alt="Logo" class="logo-icon"/> BRIBOX KANPUS</h2>
       <nav>
         <a href="trackmate.html">📋 Trackmate</a>
         <a href="appsheet.html">📋 AppSheet</a>
         <a href="formserahterima.html" class="active">📝 Form Serah Terima</a>
 
-        <!-- Parent collapsible Monthly Report -->
         <button class="nav-group" type="button"
           aria-controls="nav-monthly" aria-expanded="false"
-          onclick="
-            const t=this, m=document.getElementById('nav-monthly');
-            const ex=t.getAttribute('aria-expanded')==='true';
-            t.setAttribute('aria-expanded', String(!ex)); 
-            m.hidden=ex;
-          ">
+          onclick="const t=this,m=document.getElementById('nav-monthly');const ex=t.getAttribute('aria-expanded')==='true';t.setAttribute('aria-expanded',String(!ex));m.hidden=ex;">
           📅 Monthly Report
         </button>
-
-        <!-- Submenu Monthly -->
         <div id="nav-monthly" class="submenu" hidden>
           <a href="monthly-report/monthly-form.html">Monthly Report Form</a>
           <a href="monthly-report/monthly-data.html">Monthly Report Data</a>
         </div>
       </nav>
-      <div class="sidebar-credit" aria-label="Project credit">
-        Web App Created By BangAtuy - 2025
-      </div>
+      <div class="sidebar-credit">Web App Created By BangAtuy - 2025</div>
     </aside>
 
     <main class="main">
@@ -59,9 +44,9 @@
         </div>
       </header>
 
-      <!-- Drive connect hint (muncul hanya jika silent connect gagal) -->
-      <div id="driveConnectBar" class="drive-connect-bar" style="display:none; margin-bottom:12px">
-        <div class="card" style="display:flex; gap:10px; align-items:center; padding:10px;">
+      <!-- Connect bar -->
+      <div id="driveConnectBar" class="drive-connect-bar" style="display:none;margin-bottom:12px">
+        <div class="card" style="display:flex;gap:10px;align-items:center;padding:10px;">
           <span class="material-icons" aria-hidden="true">cloud_off</span>
           <div style="flex:1">
             <b>Google Drive belum tersambung.</b>
@@ -74,7 +59,7 @@
       <div class="controls-bar">
         <div class="controls-left">
           <label for="tglSerahTerima">Tanggal Serah Terima</label>
-          <input type="date" id="tglSerahTerima" name="tgl_serah_terima" />
+          <input type="date" id="tglSerahTerima" name="tgl_serah_terima"/>
         </div>
 
         <label for="selNamaTTD">Input Nama Untuk Kolom TTD</label>
@@ -89,18 +74,10 @@
         </select>
 
         <div class="controls-right btn-row">
-          <button id="btnGenCombo" class="primary" title="Buat FORM CM lalu gabung dengan PDF asli terpilih">
-            Generate FST + PDF
-          </button>
-          <button id="btnGenCMOnly" title="Hanya buat FORM Tanda Terima CM">
-            Generate FST
-          </button>
-          <button id="btnGenFilesOnly" title="Gabungkan hanya PDF asli yang dipilih">
-            Generate File PDF
-          </button>
-          <button id="btnReset" class="danger" title="Hapus histori tersimpan">
-            Reset Histori
-          </button>
+          <button id="btnGenCombo" class="primary">Generate FST + PDF</button>
+          <button id="btnGenCMOnly">Generate FST</button>
+          <button id="btnGenFilesOnly">Generate File PDF</button>
+          <button id="btnReset" class="danger">Reset Histori</button>
         </div>
       </div>
 
@@ -118,29 +95,22 @@
             </tr>
           </thead>
           <tbody id="historiBody">
-            <tr>
-              <td colspan="7" style="text-align:center;">
-                Belum ada data histori. Unggah PDF di Trackmate atau AppSheet.
-              </td>
-            </tr>
+            <tr><td colspan="7" style="text-align:center;">Belum ada data histori. Unggah PDF di Trackmate atau AppSheet.</td></tr>
           </tbody>
         </table>
       </div>
 
-      <!-- Dialog pilih PDF asli (untuk Generate File PDF & Gabungan) -->
+      <!-- Dialog pilih PDF asli -->
       <dialog id="pickDialog">
         <form method="dialog" style="min-width:420px;max-width:90vw">
           <h3 style="margin:0 0 8px;">Pilih PDF Asli</h3>
-          <input id="pickSearch" type="search" placeholder="Cari nama file / uker..." style="width:100%;margin-bottom:8px;" />
-
+          <input id="pickSearch" type="search" placeholder="Cari nama file / uker..." style="width:100%;margin-bottom:8px;"/>
           <div style="max-height:45vh;overflow:auto;border:1px solid var(--border,#ddd);border-radius:8px;padding:8px;">
             <label style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
-              <input id="pickAllDlg" type="checkbox" />
-              <b>Pilih semua</b>
+              <input id="pickAllDlg" type="checkbox"/> <b>Pilih semua</b>
             </label>
             <div id="pickList"></div>
           </div>
-
           <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">
             <button value="cancel" type="submit">Batal</button>
             <button id="pickOk" value="ok" class="primary" type="submit">OK</button>
@@ -150,61 +120,59 @@
     </main>
   </div>
 
+  <!-- Prefs -->
   <script>
-    // Aktifkan darkmode otomatis jika sebelumnya sudah diaktifkan
-    if (localStorage.getItem('darkMode') === 'true') {
-      document.body.classList.add('dark-mode');
-    }
-
-    // Perbarui ikon tombol sesuai status
-    document.addEventListener('DOMContentLoaded', () => {
-      const toggleBtn = document.getElementById('toggleModeBtn');
-      if (toggleBtn) {
-        toggleBtn.textContent = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
-      }
-    });
-
-    function toggleDarkMode() {
-      const isDark = document.body.classList.toggle('dark-mode');
-      localStorage.setItem('darkMode', isDark);
-      document.getElementById('toggleModeBtn').textContent = isDark ? '☀️' : '🌙';
-    }
-
-    function toggleSidebar() {
-      document.querySelector('.sidebar').classList.toggle('hidden');
-    }
+    if(localStorage.getItem('darkMode')==='true'){document.body.classList.add('dark-mode');}
+    function toggleDarkMode(){const d=document.body.classList.toggle('dark-mode');localStorage.setItem('darkMode',d);document.getElementById('toggleModeBtn').textContent=d?'☀️':'🌙';}
+    function toggleSidebar(){document.querySelector('.sidebar').classList.toggle('hidden');}
   </script>
 
-  <!-- jsPDF + AutoTable + pdf-lib -->
+  <!-- PDF libs -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
   <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
 
- <!-- Auth + Guard -->
+  <!-- Auth -->
   <script defer src="auth.js"></script>
   <script>document.addEventListener('DOMContentLoaded',()=>Auth.enforce());</script>
 
-  <!-- Google SDKs -->
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="https://apis.google.com/js/api.js" async defer></script>
+  <!-- Drive core -->
+  <script src="drive-sync.js?v=pure-oauth-2"></script>
+  <script src="drive-queue.js" defer></script>
 
-  <!-- Drive -->
-  <script src="./drive-sync.js?v=pure-oauth-1"></script>
-  <script defer src="drive-queue.js"></script>
+  <!-- Connect bar wiring -->
   <script>
-document.addEventListener('DOMContentLoaded', () => {
-  const bar = document.getElementById('driveConnectBar');
-  const btn = document.getElementById('btnConnectDrive');
-  if (bar) bar.style.display = 'block';
-  btn?.addEventListener('click', async () => {
-    btn.disabled = true;
-    try { await DriveSync.signIn(); bar?.remove(); }
-    catch (e) { alert('Gagal connect Drive.\n' + (e?.message || e)); if (bar) bar.style.display = 'block'; }
-    finally { btn.disabled = false; }
-  });
-});
-</script>
+    document.addEventListener('DOMContentLoaded',()=>{
+      const bar=document.getElementById('driveConnectBar');
+      const btn=document.getElementById('btnConnectDrive');
+      if(bar) bar.style.display='block';
+      btn?.addEventListener('click',async()=>{
+        btn.disabled=true;
+        try{ await DriveSync.signIn(); bar?.remove(); }
+        catch(e){ alert('Gagal connect Drive.\n'+(e?.message||e)); if(bar) bar.style.display='block';}
+        finally{ btn.disabled=false; }
+      });
+    });
+  </script>
 
-  <script src="formserahterima.js"></script>
+  <!-- Upload helper untuk PDF hasil generate -->
+  <script>
+    async function sha256Hex(ab){const h=await crypto.subtle.digest('SHA-256',ab);return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join('');}
+    async function uploadGeneratedPDF(pdfBlobOrU8, baseName, folder='Form Serah Terima'){
+      if(!DriveSync?.isLogged?.()){alert('Sambungkan Google Drive dulu.');return;}
+      const blob = pdfBlobOrU8 instanceof Blob ? pdfBlobOrU8 : new Blob([pdfBlobOrU8], {type:'application/pdf'});
+      const ab   = await blob.arrayBuffer();
+      const hash = await sha256Hex(ab);
+      const file = new File([ab], (baseName||'FormSerahTerima')+'.pdf', {type:'application/pdf'});
+
+      const exist = await DriveSync.findByHashPrefix(hash, folder);
+      const meta  = exist ? {id:exist.id,name:exist.name} : await DriveSync.uploadPdf(file, hash, folder);
+      alert('PDF tersimpan di Drive:\nhttps://drive.google.com/file/d/'+meta.id+'/view');
+      return meta;
+    }
+  </script>
+
+  <!-- Logika halaman -->
+  <script src="formserahterima.js?v=upload-1"></script>
 </body>
 </html>

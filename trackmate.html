@@ -1,50 +1,40 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>BRIBOX KANPUS • Trackmate</title>
-  <link rel="icon" type="image/png" href="./favicon.png" />
-  <link rel="stylesheet" href="style.css" />
-  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="./favicon.png"/>
+  <link rel="stylesheet" href="style.css"/>
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet"/>
 
-  <!-- === CONFIG (local dulu, fallback ke sample) === -->
+  <!-- Config (local dulu, fallback sample) -->
   <script src="config.local.js"></script>
-  <script>if (!window.__CONFIG) document.write('<script src="config.sample.js"><\/script>');</script>
+  <script>if(!window.__CONFIG)document.write('<script src="config.sample.js"><\/script>');</script>
 </head>
 <body data-page="trackmate">
   <div class="dashboard">
     <!-- Sidebar -->
     <aside class="sidebar">
       <h2 class="logo">
-        <img src="favicon.png" alt="Logo" class="logo-icon" />
-        BRIBOX KANPUS
+        <img src="favicon.png" alt="Logo" class="logo-icon"/> BRIBOX KANPUS
       </h2>
-
       <nav>
         <a href="trackmate.html" class="active">📋 Trackmate</a>
         <a href="appsheet.html">📋 AppSheet</a>
         <a href="formserahterima.html">📝 Form Serah Terima</a>
 
-        <!-- Parent collapsible Monthly Report -->
         <button class="nav-group" type="button"
           aria-controls="nav-monthly" aria-expanded="false"
-          onclick="
-            const t=this, m=document.getElementById('nav-monthly');
-            const ex=t.getAttribute('aria-expanded')==='true';
-            t.setAttribute('aria-expanded', String(!ex));
-            m.hidden=ex;
-          ">📅 Monthly Report</button>
-
-        <!-- Submenu Monthly -->
+          onclick="const t=this,m=document.getElementById('nav-monthly');const ex=t.getAttribute('aria-expanded')==='true';t.setAttribute('aria-expanded',String(!ex));m.hidden=ex;">
+          📅 Monthly Report
+        </button>
         <div id="nav-monthly" class="submenu" hidden>
           <a href="monthly-report/monthly-form.html">Monthly Report Form</a>
           <a href="monthly-report/monthly-data.html">Monthly Report Data</a>
         </div>
       </nav>
-      <div class="sidebar-credit" aria-label="Project credit">
-        Web App Created By BangAtuy - 2025
-      </div>
+      <div class="sidebar-credit">Web App Created By BangAtuy - 2025</div>
     </aside>
 
     <!-- Main -->
@@ -58,9 +48,9 @@
         </div>
       </header>
 
-      <!-- Drive connect hint (muncul hanya jika silent connect gagal) -->
-      <div id="driveConnectBar" class="drive-connect-bar" style="display:none; margin-bottom:12px">
-        <div class="card" style="display:flex; gap:10px; align-items:center; padding:10px;">
+      <!-- Connect Drive bar -->
+      <div id="driveConnectBar" class="drive-connect-bar" style="display:none;margin-bottom:12px">
+        <div class="card" style="display:flex;gap:10px;align-items:center;padding:10px;">
           <span class="material-icons" aria-hidden="true">cloud_off</span>
           <div style="flex:1">
             <b>Google Drive belum tersambung.</b>
@@ -74,10 +64,9 @@
         <h3>Upload Form PDF Kalian Disini Lalu Pilih Lokasi Divisi!</h3>
 
         <label for="pdfFile" class="upload-label">
-          <span class="material-icons" aria-hidden="true">picture_as_pdf</span>
-          Pilih File PDF
+          <span class="material-icons" aria-hidden="true">picture_as_pdf</span> Pilih File PDF
         </label>
-        <input type="file" id="pdfFile" accept="application/pdf" />
+        <input type="file" id="pdfFile" accept="application/pdf"/>
 
         <div class="form-group">
           <label for="inputLokasi">Pilih Lokasi Divisi :</label>
@@ -166,69 +155,69 @@
     </main>
   </div>
 
-  <!-- Preference toggles -->
+  <!-- Prefs -->
   <script>
-    if (localStorage.getItem('darkMode') === 'true') {
-      document.body.classList.add('dark-mode');
-    }
-    document.addEventListener('DOMContentLoaded', () => {
-      const toggleBtn = document.getElementById('toggleModeBtn');
-      if (toggleBtn) {
-        const isDark = document.body.classList.contains('dark-mode');
-        toggleBtn.textContent = isDark ? '☀️' : '🌙';
-        toggleBtn.setAttribute('aria-pressed', String(isDark));
-      }
-    });
-    function toggleDarkMode() {
-      const isDark = document.body.classList.toggle('dark-mode');
-      localStorage.setItem('darkMode', isDark);
-      const btn = document.getElementById('toggleModeBtn');
-      if (btn) {
-        btn.textContent = isDark ? '☀️' : '🌙';
-        btn.setAttribute('aria-pressed', String(isDark));
-      }
-    }
-    function toggleSidebar() {
-      document.querySelector('.sidebar')?.classList.toggle('hidden');
-    }
+    if(localStorage.getItem('darkMode')==='true'){document.body.classList.add('dark-mode');}
+    document.addEventListener('DOMContentLoaded',()=>{const b=document.getElementById('toggleModeBtn');if(b){const d=document.body.classList.contains('dark-mode');b.textContent=d?'☀️':'🌙';b.setAttribute('aria-pressed',String(d));}});
+    function toggleDarkMode(){const d=document.body.classList.toggle('dark-mode');localStorage.setItem('darkMode',d);const b=document.getElementById('toggleModeBtn');if(b){b.textContent=d?'☀️':'🌙';b.setAttribute('aria-pressed',String(d));}}
+    function toggleSidebar(){document.querySelector('.sidebar')?.classList.toggle('hidden');}
   </script>
 
-  <!-- PDF.js -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
-  <script>
-    if (window.pdfjsLib && (!pdfjsLib.GlobalWorkerOptions.workerSrc || pdfjsLib.GlobalWorkerOptions.workerSrc === '')) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
-    }
-  </script>
-
-  <!-- Auth + Guard -->
+  <!-- Auth -->
   <script defer src="auth.js"></script>
   <script>document.addEventListener('DOMContentLoaded',()=>Auth.enforce());</script>
 
-  <!-- Google SDKs -->
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="https://apis.google.com/js/api.js" async defer></script>
+  <!-- Drive core -->
+  <script src="drive-sync.js?v=pure-oauth-2"></script>
+  <script src="drive-queue.js" defer></script>
 
-  <!-- Drive -->
-  <script src="./drive-sync.js?v=pure-oauth-1"></script>
-  <script defer src="drive-queue.js"></script>
-  <!-- === Drive (force show bar dulu, baru coba silent) === -->
-<script>
-document.addEventListener('DOMContentLoaded', () => {
-  const bar = document.getElementById('driveConnectBar');
-  const btn = document.getElementById('btnConnectDrive');
-  if (bar) bar.style.display = 'block';
-  btn?.addEventListener('click', async () => {
-    btn.disabled = true;
-    try { await DriveSync.signIn(); bar?.remove(); }
-    catch (e) { alert('Gagal connect Drive.\n' + (e?.message || e)); if (bar) bar.style.display = 'block'; }
-    finally { btn.disabled = false; }
-  });
-});
-</script>
+  <!-- Connect bar wiring (no silent login) -->
+  <script>
+    document.addEventListener('DOMContentLoaded',()=>{
+      const bar=document.getElementById('driveConnectBar');
+      const btn=document.getElementById('btnConnectDrive');
+      if(bar) bar.style.display='block';
+      btn?.addEventListener('click',async()=>{
+        btn.disabled=true;
+        try{ await DriveSync.signIn(); bar?.remove(); }
+        catch(e){ alert('Gagal connect Drive.\n'+(e?.message||e)); if(bar) bar.style.display='block';}
+        finally{ btn.disabled=false; }
+      });
+    });
+  </script>
 
+  <!-- Upload handler -->
+  <script>
+    document.addEventListener('DOMContentLoaded',()=>{
+      const pdfInput=document.getElementById('pdfFile');
+      const lokasiSel=document.getElementById('inputLokasi');
+      const output=document.getElementById('output');
 
-  <!-- === App logic === -->
+      async function sha256Hex(ab){const h=await crypto.subtle.digest('SHA-256',ab);return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join('');}
+
+      async function maybeUpload(){
+        const file=pdfInput?.files?.[0];
+        const lokasi=(lokasiSel?.value||'').trim();
+        if(!file||!lokasi) return;
+        if(!DriveSync?.isLogged?.()){alert('Sambungkan Google Drive dulu.');return;}
+
+        output.textContent='Menghitung hash & menyiapkan upload...';
+        const hash=await sha256Hex(await file.arrayBuffer());
+        try{
+          const ex=await DriveSync.findByHashPrefix(hash,lokasi);
+          let meta;
+          if(ex){meta={id:ex.id,name:ex.name};output.textContent='File sudah ada, tidak diupload ulang.';}
+          else{output.textContent='Mengupload ke Drive...';meta=await DriveSync.uploadPdf(file,hash,lokasi);output.textContent='Upload selesai.';}
+          const url=`https://drive.google.com/file/d/${meta.id}/view`;
+          output.textContent+=`\nNama: ${meta.name}\nLink: ${url}`;
+        }catch(e){output.textContent='Gagal upload: '+(e?.message||e);console.error(e);}
+      }
+      pdfInput?.addEventListener('change',maybeUpload);
+      lokasiSel?.addEventListener('change',maybeUpload);
+    });
+  </script>
+
+  <!-- App logic -->
   <script src="trackmate.js"></script>
 </body>
 </html>
