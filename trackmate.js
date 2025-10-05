@@ -266,6 +266,117 @@ async function savePdfToIndexedDB_keepSchema(fileOrBlob, { contentHash } = {}) {
   console.log(`✅ Tersimpan (pdfs): ${fileOrBlob.name} (${(blob.size/1024).toFixed(1)} KB), meta:`, meta);
 }
 
+/* ========= Google Drive Upload (langsung di folder Bribox Kanpus) ========= */
+/* Syarat: gapi client sudah di-load & user sudah authorize (scope drive.file) */
+const DRIVE_ROOT_NAME = 'Bribox Kanpus';
+
+async function driveIsReady() {
+  try { return !!(window.gapi?.client?.drive && window.gapi.client.getToken()); }
+  catch { return false; }
+}
+
+async function driveEnsureRoot() {
+  const q = [
+    `mimeType='application/vnd.google-apps.folder'`,
+    `name='${DRIVE_ROOT_NAME.replace(/'/g,"\\'")}'`,
+    `'root' in parents`,
+    `trashed=false`
+  ].join(' and ');
+  const res = await gapi.client.drive.files.list({ q, fields: 'files(id,name)', spaces: 'drive' });
+  if (res?.result?.files?.length) return res.result.files[0].id;
+
+  const create = await gapi.client.drive.files.create({
+    fields: 'id',
+    resource: { name: DRIVE_ROOT_NAME, mimeType: 'application/vnd.google-apps.folder', parents: ['root'] }
+  });
+  return create.result.id;
+}
+
+function base64FromBlobAsync(blob) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result||'').split(',')[1]||'');
+    fr.onerror = reject;
+    fr.readAsDataURL(blob);
+  });
+}
+
+// cari dedupe by appProperties.contentHash
+async function driveFindByHash(parentId, contentHash) {
+  const q = [
+    `'${parentId}' in parents`,
+    `trashed=false`,
+    `appProperties has { key='contentHash' and value='${contentHash}' }`,
+    `mimeType='application/pdf'`
+  ].join(' and ');
+  const res = await gapi.client.drive.files.list({ q, fields: 'files(id,name)', spaces: 'drive' });
+  return res?.result?.files?.[0] || null;
+}
+
+async function driveUploadPdfOriginal({ file, contentHash, meta, parentId, filename }) {
+  const boundary = '-------314159265358979323846';
+  const delimiter = `\r\n--${boundary}\r\n`;
+  const closeDelim = `\r\n--${boundary}--`;
+
+  const metadata = {
+    name: filename || (file?.name || 'document.pdf'),
+    parents: [parentId],
+    mimeType: 'application/pdf',
+    appProperties: {
+      contentHash: contentHash || '',
+      module: 'trackmate',
+      uploadedAt: new Date().toISOString(),
+      ...(meta && typeof meta === 'object' ? { metaV: String(meta?.v ?? 1) } : {})
+    },
+    description: 'BRIBOX KANPUS original PDF (auto-synced)',
+  };
+
+  const base64Data = await base64FromBlobAsync(file);
+  const multipartBody =
+    delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+    JSON.stringify(metadata) +
+    delimiter + 'Content-Type: application/pdf\r\nContent-Transfer-Encoding: base64\r\n\r\n' +
+    base64Data + closeDelim;
+
+  const res = await gapi.client.request({
+    path: '/upload/drive/v3/files',
+    method: 'POST',
+    params: { uploadType: 'multipart', fields: 'id' },
+    headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+    body: multipartBody
+  });
+  return res?.result?.id || null;
+}
+
+async function tryUploadOriginalToDrive(file, contentHash, meta) {
+  if (!await driveIsReady()) { showToast('ℹ Google Drive belum tersambung', 2500, 'info'); return false; }
+  const timeout = (ms) => new Promise((_,rej)=>setTimeout(()=>rej(new Error('Drive upload timeout')), ms));
+  try {
+    const parentId = await driveEnsureRoot();
+
+    // dedupe: jika sudah ada di folder Bribox Kanpus → skip upload
+    const exist = await driveFindByHash(parentId, contentHash);
+    if (exist?.id) { showToast('☁️ Sudah ada di Google Drive', 2200, 'info'); return true; }
+
+    const driveId = await Promise.race([
+      driveUploadPdfOriginal({
+        file,
+        contentHash,
+        meta: meta || null,
+        parentId,
+        filename: file?.name || `original-${contentHash}.pdf`
+      }),
+      timeout(15000)
+    ]);
+    if (driveId) { showToast('☁️ Tersimpan ke Google Drive', 2500, 'success'); return true; }
+    showToast('⚠ Gagal simpan ke Drive', 3500, 'warn'); return false;
+  } catch (e) {
+    console.warn('Drive upload error:', e);
+    showToast('⚠ Gagal simpan ke Drive', 3500, 'warn');
+    return false;
+  }
+}
+
 /* ========= Helpers ========= */
 const clean = (x) => String(x || '')
   .replace(/[\u00A0\u2007\u202F]/g, ' ')  // NBSP family -> spasi biasa
@@ -507,6 +618,23 @@ copyBtn?.addEventListener("click", async () => {
         })(),
         new Promise((_, rej) => setTimeout(() => rej(new Error("IDB timeout")), TIMEOUT_MS))
       ]);
+
+      // === Upload ke Google Drive (optional, jika tersambung) ===
+      try {
+        // ambil meta dari store lama agar konsisten
+        let metaForDrive = null;
+        try {
+          const dbConn = await ensureDb();
+          const tx = dbConn.transaction(['pdfs'], 'readonly');
+          const st = tx.objectStore('pdfs');
+          const all = await new Promise(res => { const r = st.getAll(); r.onsuccess = () => res(r.result||[]); r.onerror = () => res([]); });
+          const hit = all.find(x => x?.contentHash === contentHash);
+          metaForDrive = hit?.meta || null;
+        } catch {}
+        await tryUploadOriginalToDrive(file, contentHash, metaForDrive);
+      } catch (e) {
+        console.warn('Drive upload skipped/error:', e);
+      }
 
       // Sukses penuh ⇒ 1 toast hijau
       showToast("✔ Berhasil disimpan ke histori", 3000, "success");
