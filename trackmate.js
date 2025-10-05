@@ -1,37 +1,44 @@
 // ====== Trackmate ======
+//
+// Fitur inti:
+// - Per akun (localStorage & IndexedDB namespaced per UID; guest terpisah dari akun login)
+// - Sinkron lintas device via manifest .bribox_histori__<uid>.json di "Bribox Kanpus"
+// - Upload PDF asli ke Google Drive, prioritas DriveSync/DriveQueue (tanpa subfolder, langsung di root "Bribox Kanpus")
+// - Fallback ke gapi kalau memang ada gapi client (opsional)
+// - Parsing & output lama dipertahankan, posisi TTD aman (auto-calibrate)
 
-/* ========= HASH UTIL (BARU) ========= */
+
+// ---------- HASH UTIL ----------
 async function sha256File(file) {
   try {
     const buf = await file.arrayBuffer();
     const hashBuf = await crypto.subtle.digest('SHA-256', buf);
     return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
   } catch {
-    // fallback kalau SubtleCrypto gak ada
     return `fz_${file.size}_${file.lastModified}_${Math.random().toString(36).slice(2,10)}`;
   }
 }
 
-/* ========= SIDEBAR ========= */
+// ---------- SIDEBAR ----------
 const sidebar   = document.querySelector('.sidebar');
 const overlay   = document.getElementById('sidebarOverlay') || document.querySelector('.sidebar-overlay');
 const sidebarLinks = document.querySelectorAll('.sidebar a');
 
-function openSidebar() { sidebar.classList.add('visible'); overlay?.classList.add('show'); document.body.style.overflow = 'hidden'; }
-function closeSidebar() { sidebar.classList.remove('visible'); overlay?.classList.remove('show'); document.body.style.overflow = ''; }
-function toggleSidebar() { sidebar.classList.contains('visible') ? closeSidebar() : openSidebar(); }
+function openSidebar(){ sidebar.classList.add('visible'); overlay?.classList.add('show'); document.body.style.overflow='hidden'; }
+function closeSidebar(){ sidebar.classList.remove('visible'); overlay?.classList.remove('show'); document.body.style.overflow=''; }
+function toggleSidebar(){ sidebar.classList.contains('visible')?closeSidebar():openSidebar(); }
 window.toggleSidebar = toggleSidebar;
 
 overlay?.addEventListener('click', closeSidebar);
-document.addEventListener('click', (e) => {
+document.addEventListener('click', (e)=> {
   const isMobile = window.matchMedia('(max-width: 768px)').matches;
   if (!isMobile) return;
   const clickInsideSidebar = sidebar.contains(e.target);
   const clickOnToggle = e.target.closest('.sidebar-toggle-btn');
   if (sidebar.classList.contains('visible') && !clickInsideSidebar && !clickOnToggle) closeSidebar();
 });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && sidebar.classList.contains('visible')) closeSidebar(); });
-sidebarLinks.forEach(a => a.addEventListener('click', closeSidebar));
+document.addEventListener('keydown', (e)=>{ if (e.key==='Escape' && sidebar.classList.contains('visible')) closeSidebar(); });
+sidebarLinks.forEach(a=>a.addEventListener('click', closeSidebar));
 
 document.addEventListener('DOMContentLoaded', function () {
   const title = document.querySelector('.dashboard-header h1')?.textContent?.toLowerCase() || "";
@@ -42,19 +49,59 @@ document.addEventListener('DOMContentLoaded', function () {
   else if (title.includes('merge'))     body.setAttribute('data-page', 'merge');
 });
 
-/* ========= Query DOM ========= */
+// ---------- QUERY DOM ----------
 const fileInput    = document.getElementById('pdfFile');
 const output       = document.getElementById('output');
 const copyBtn      = document.getElementById('copyBtn');
 const lokasiSelect = document.getElementById('inputLokasi');
 
-// === AUTO-CALIBRATE: cari anchor "Diselesaikan Oleh," dan "Nama & Tanda Tangan" ===
+// ---------- USER CONTEXT (per-akun) ----------
+function getUidOrAnon() {
+  try {
+    return (window.DriveSync?.getUser?.()?.uid) ||
+           (window.Auth && (Auth.user?.uid || Auth.currentUser?.()?.uid)) ||
+           'anon';
+  } catch { return 'anon'; }
+}
+const PUBLIC_HIST_KEY = 'pdfHistori';
+function userHistKey(){ return `${PUBLIC_HIST_KEY}::${getUidOrAnon()}`; }
+function syncHistAliasFromUser(){
+  const raw = localStorage.getItem(userHistKey()) ?? '[]';
+  localStorage.setItem(PUBLIC_HIST_KEY, raw);
+}
+let __lastUid = null;
+async function watchAuthAndSwapStores(){
+  const now = getUidOrAnon();
+  if (now !== __lastUid){
+    __lastUid = now;
+    try{ if (db){ db.close(); db=null; } }catch{}
+    // refresh alias local
+    syncHistAliasFromUser();
+    // rehydrate dari Drive (manifest) kalau ada
+    try{
+      const cloud = await driveLoadHistoriManifest();
+      if (Array.isArray(cloud)) {
+        localStorage.setItem(userHistKey(), JSON.stringify(cloud));
+        syncHistAliasFromUser();
+      }
+    }catch(e){ console.warn('rehydrate manifest fail:', e); }
+  }
+}
+watchAuthAndSwapStores();
+(window.DriveSync?.onAuthStateChanged) && window.DriveSync.onAuthStateChanged(watchAuthAndSwapStores);
+setInterval(watchAuthAndSwapStores, 1500);
+window.addEventListener('storage', (e)=>{ if (e.key && e.key.startsWith('pdfHistori::')) syncHistAliasFromUser(); });
+window.addEventListener('pageshow', watchAuthAndSwapStores);
+window.addEventListener('beforeunload', ()=>{ try{ if(db){ db.close(); db=null; } }catch{} });
+
+// ---------- AUTO-CALIBRATE (anchor kolom TTD) ----------
 async function autoCalibratePdf(buffer){
+  if (!window.pdfjsLib?.getDocument) return null;
   const doc = await pdfjsLib.getDocument({ data: buffer }).promise;
   const page = await doc.getPage(1);
   const items = (await page.getTextContent()).items || [];
 
-  // "Diselesaikan Oleh," (kolom tengah)
+  // "Diselesaikan Oleh"
   let atas = items.find(it => /Diselesaikan\s*Oleh/i.test(it.str));
   if(!atas){
     for(let i=0;i<items.length-1;i++){
@@ -77,11 +124,11 @@ async function autoCalibratePdf(buffer){
     if (dx <= 120 && score < best){ best = score; bawah = it; }
   }
 
-  // titik dasar (x,y) untuk nama
+  // titik dasar (x,y) untuk nama di kolom tengah TTD
   let x = xA + 95;
   let y = bawah ? (bawah.transform[5] + 12) : (yA - 32);
 
-  // (opsional) info baris UK & SOLUSI – bisa dipakai nanti, tidak wajib
+  // info tambahan (opsional)
   const first = r => items.find(it => r.test(it.str));
   const labUK = first(/Unit\s*Kerja/i), labKC = first(/Kantor\s*Cabang/i);
   let linesUK = 0;
@@ -121,69 +168,46 @@ async function autoCalibratePdf(buffer){
   return { x, y, linesUK, linesSOL, dx:0, dy:0, v:1 };
 }
 
-//* ========= IndexedDB (UPDATED) ========= */
-const DB_NAME     = "PdfStorage";   // tetap
-const DB_VERSION  = 2;              // ↑ perlu untuk menambah store baru
-const STORE_NAME  = "pdfs";         // store lama (kompat)
-const STORE_BLOBS = "pdfBlobs";     // store baru: blob by contentHash
+// ---------- INDEXEDDB (per-UID) ----------
+const DB_VERSION  = 2;
+const STORE_NAME  = "pdfs";
+const STORE_BLOBS = "pdfBlobs";
 let db;
 
-/** Open DB dan siapkan store lama & baru */
+function currentDbName() {
+  const uid = getUidOrAnon();
+  return uid === 'anon' ? 'PdfStorage' : `PdfStorage__${uid}`;
+}
 function openDb() {
+  const DB_NAME = currentDbName();
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
     request.onupgradeneeded = (event) => {
       const _db = event.target.result;
-      // Pastikan store lama ada (kompatibilitas)
-      if (!_db.objectStoreNames.contains(STORE_NAME)) {
-        _db.createObjectStore(STORE_NAME, { keyPath: "id", autoIncrement: true });
-      }
-      // Store baru untuk simpan/overwrite blob per contentHash
-      if (!_db.objectStoreNames.contains(STORE_BLOBS)) {
-        _db.createObjectStore(STORE_BLOBS, { keyPath: "contentHash" });
-      }
+      if (!_db.objectStoreNames.contains(STORE_NAME))  _db.createObjectStore(STORE_NAME,  { keyPath:'id', autoIncrement:true });
+      if (!_db.objectStoreNames.contains(STORE_BLOBS)) _db.createObjectStore(STORE_BLOBS, { keyPath:'contentHash' });
     };
 
     request.onsuccess = (event) => {
       db = event.target.result;
-      // Jika versi berubah di tab lain, tutup supaya tidak blocked
-      db.onversionchange = () => { try { db.close(); } catch {} db = null; };
+      db.__name = DB_NAME;
+      db.onversionchange = () => { try{ db.close(); }catch{} db=null; };
       resolve(db);
     };
-
-    request.onerror = (event) => {
-      console.error("IndexedDB error:", event.target.error || event.target.errorCode);
-      reject(event.target.error || event.target.errorCode);
-    };
-
-    request.onblocked = () => {
-      console.warn("IndexedDB open blocked (mungkin ada tab lain masih terbuka).");
-    };
+    request.onerror  = (event) => reject(event.target.error || event.target.errorCode);
+    request.onblocked = () => console.warn("IndexedDB open blocked");
   });
 }
-
-/** Pastikan koneksi DB siap dipakai (re-open jika null) */
-async function ensureDb() {
-  if (db) return db;
-  try { return await openDb(); }
-  catch (e) { console.warn("openDb gagal:", e); return null; }
+async function ensureDb(){
+  const want = currentDbName();
+  if (db && db.__name === want) return db;
+  try{ if(db){ db.close(); } }catch{}
+  db = null;
+  return await openDb();
 }
 
-/** Lifecycle: stabil setelah Back/Forward (bfcache) */
-window.addEventListener('pageshow', async (e) => {
-  if (e.persisted) {
-    // (opsional) reset file input di luar snippet ini: fileInput?.value = '';
-    await ensureDb();
-  }
-});
-window.addEventListener('pagehide', () => {
-  try { if (db) { db.close(); db = null; } } catch {}
-});
-
-/** === BARU (patched) === simpan blob PDF keyed by contentHash (overwrite-safe)
- *  Sekaligus auto-calibrate agar `meta` ikut tersimpan seperti sistem lama.
- */
+/** simpan blob by hash (+meta) */
 async function saveBlobByHash(fileOrBlob, contentHash) {
   const blob = fileOrBlob instanceof Blob ? fileOrBlob : null;
   if (!blob) throw new Error("saveBlobByHash: argumen harus File/Blob");
@@ -194,54 +218,42 @@ async function saveBlobByHash(fileOrBlob, contentHash) {
   const database = await ensureDb();
   if (!database) throw new Error("IndexedDB tidak tersedia / gagal dibuka");
 
-  // tambahkan kalibrasi (sama spiritnya dgn savePdfToIndexedDB_keepSchema)
   let meta = null;
   try {
     const buf = await blob.arrayBuffer();
-    if (typeof autoCalibratePdf === "function") {
-      meta = await autoCalibratePdf(buf); // { x, y, dx, dy, linesUK, linesSOL, v }
-    }
-  } catch (e) {
-    console.warn("autoCalibrate gagal (saveBlobByHash):", e);
-  }
+    if (typeof autoCalibratePdf === "function") meta = await autoCalibratePdf(buf);
+  } catch (e) { console.warn("autoCalibrate gagal (saveBlobByHash):", e); }
 
   return new Promise((resolve, reject) => {
     const tx = database.transaction([STORE_BLOBS], "readwrite");
     const store = tx.objectStore(STORE_BLOBS);
-
     const value = {
       contentHash,
       name: (/** @type {File} */(fileOrBlob)).name || "document.pdf",
       size: blob.size,
       dateAdded: new Date().toISOString(),
       data: blob,
-      meta  // penting: ikut simpan meta di store baru
+      meta
     };
-
-    const req = store.put(value);        // put = overwrite (tanpa double)
+    const req = store.put(value);
     tx.oncomplete = () => resolve();
     tx.onerror    = () => reject(tx.error || new Error("Tx error"));
     req.onerror   = () => reject(req.error || new Error("Req error"));
   });
 }
 
-/** === LAMA (kompat) — simpan ke store `pdfs` + meta */
+/** simpan ke store lama (kompat) */
 async function savePdfToIndexedDB_keepSchema(fileOrBlob, { contentHash } = {}) {
   const blob = fileOrBlob instanceof Blob ? fileOrBlob : null;
   if (!blob) throw new Error('savePdfToIndexedDB: argumen harus File/Blob');
   if (blob.type !== 'application/pdf') throw new Error('Type bukan PDF');
   if (!blob.size) throw new Error('PDF kosong');
 
-  // (opsional) kalibrasi/ekstrak meta
   let meta = null;
   try {
     const buf = await blob.arrayBuffer();
-    if (typeof autoCalibratePdf === "function") {
-      meta = await autoCalibratePdf(buf);
-    }
-  } catch (e) {
-    console.warn('autoCalibrate gagal:', e);
-  }
+    if (typeof autoCalibratePdf === "function") meta = await autoCalibratePdf(buf);
+  } catch (e) { console.warn('autoCalibrate gagal:', e); }
 
   const database = await ensureDb();
   if (!database) throw new Error("IndexedDB tidak tersedia / gagal dibuka");
@@ -257,7 +269,6 @@ async function savePdfToIndexedDB_keepSchema(fileOrBlob, { contentHash } = {}) {
       meta
     };
     const req = store.add(payload);
-
     tx.oncomplete = resolve;
     tx.onerror    = () => reject(tx.error || new Error('Tx error'));
     req.onerror   = () => reject(req.error || new Error('Req error'));
@@ -266,33 +277,14 @@ async function savePdfToIndexedDB_keepSchema(fileOrBlob, { contentHash } = {}) {
   console.log(`✅ Tersimpan (pdfs): ${fileOrBlob.name} (${(blob.size/1024).toFixed(1)} KB), meta:`, meta);
 }
 
-/* ========= Google Drive Upload (langsung di folder Bribox Kanpus) ========= */
-/* Syarat: gapi client sudah di-load & user sudah authorize (scope drive.file) */
-const DRIVE_ROOT_NAME = 'Bribox Kanpus';
+// ---------- GOOGLE DRIVE (Bribox Kanpus) ----------
 
-async function driveIsReady() {
-  try { return !!(window.gapi?.client?.drive && window.gapi.client.getToken()); }
-  catch { return false; }
-}
+// Manifest (sinkron antar device di root "Bribox Kanpus")
+const MANIFEST_BASENAME = '.bribox_histori';
+function manifestName() { return `${MANIFEST_BASENAME}__${getUidOrAnon()}.json`; }
 
-async function driveEnsureRoot() {
-  const q = [
-    `mimeType='application/vnd.google-apps.folder'`,
-    `name='${DRIVE_ROOT_NAME.replace(/'/g,"\\'")}'`,
-    `'root' in parents`,
-    `trashed=false`
-  ].join(' and ');
-  const res = await gapi.client.drive.files.list({ q, fields: 'files(id,name)', spaces: 'drive' });
-  if (res?.result?.files?.length) return res.result.files[0].id;
-
-  const create = await gapi.client.drive.files.create({
-    fields: 'id',
-    resource: { name: DRIVE_ROOT_NAME, mimeType: 'application/vnd.google-apps.folder', parents: ['root'] }
-  });
-  return create.result.id;
-}
-
-function base64FromBlobAsync(blob) {
+// helper koding base64 (untuk gapi fallback)
+function base64FromBlobAsync(blob){
   return new Promise((resolve, reject) => {
     const fr = new FileReader();
     fr.onload = () => resolve(String(fr.result||'').split(',')[1]||'');
@@ -301,8 +293,147 @@ function base64FromBlobAsync(blob) {
   });
 }
 
-// cari dedupe by appProperties.contentHash
-async function driveFindByHash(parentId, contentHash) {
+// ==== DriveSync first (tanpa gapi) ====
+function dsReady() {
+  try { return !!(window.DriveSync?.isLogged?.()); } catch { return false; }
+}
+
+// ambil manifest dari Drive
+async function driveLoadHistoriManifest() {
+  try {
+    // DriveSync path
+    if (window.DriveSync?.getTextFileByName) {
+      const txt = await DriveSync.getTextFileByName(manifestName());
+      return txt ? JSON.parse(txt) : null;
+    }
+  } catch (e) {
+    console.warn('DriveSync getTextFileByName fail:', e);
+  }
+
+  // gapi fallback
+  if (!await driveIsReady_gapi()) return null;
+  try {
+    const parentId = await driveEnsureRoot_gapi();
+    const q = [`'${parentId}' in parents`,`trashed=false`,`name='${manifestName().replace(/'/g,"\\'")}'`].join(' and ');
+    const r = await gapi.client.drive.files.list({ q, fields: 'files(id,name)' });
+    const f = r?.result?.files?.[0];
+    if (!f) return null;
+    const fileResp = await gapi.client.drive.files.get({ fileId: f.id, alt: 'media' });
+    return JSON.parse(fileResp.body || 'null');
+  } catch(e) {
+    console.warn('load manifest (gapi) fail:', e);
+    return null;
+  }
+}
+
+// simpan manifest ke Drive (debounced oleh scheduleSaveManifest)
+async function driveSaveHistoriManifest(arr) {
+  const json = JSON.stringify(Array.isArray(arr) ? arr : [], null, 0);
+
+  // DriveSync path
+  if (window.DriveSync?.putTextFile) {
+    try {
+      await DriveSync.putTextFile(manifestName(), json, 'application/json'); // otomatis di root Bribox Kanpus
+      return true;
+    } catch (e) {
+      console.warn('DriveSync putTextFile fail:', e);
+    }
+  }
+
+  // gapi fallback
+  if (!await driveIsReady_gapi()) return false;
+  try {
+    const parentId = await driveEnsureRoot_gapi();
+    const search = await gapi.client.drive.files.list({
+      q: [`'${parentId}' in parents`,`trashed=false`,`name='${manifestName().replace(/'/g,"\\'")}'`].join(' and '),
+      fields: 'files(id,name)'
+    });
+    const existing = search?.result?.files?.[0];
+
+    const boundary = '-------314159265358979323846';
+    const delimiter = `\r\n--${boundary}\r\n`;
+    const closeDelim = `\r\n--${boundary}--`;
+    const metadata = { name: manifestName(), parents: [parentId], mimeType: 'application/json' };
+    const body = delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+                 json + closeDelim;
+    const common = {
+      params: { uploadType: 'multipart', fields: 'id' },
+      headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+      body
+    };
+
+    let resp;
+    if (existing) {
+      resp = await gapi.client.request({ path: `/upload/drive/v3/files/${existing.id}`, method: 'PATCH', ...common });
+    } else {
+      resp = await gapi.client.request({ path: '/upload/drive/v3/files', method: 'POST', ...common });
+    }
+    return !!resp?.result?.id;
+  } catch(e) {
+    console.warn('save manifest (gapi) fail:', e);
+    return false;
+  }
+}
+
+// Debounce penyimpanan manifest agar tidak terlalu sering
+let _manifestTimer = null;
+function scheduleSaveManifest() {
+  if (_manifestTimer) clearTimeout(_manifestTimer);
+  _manifestTimer = setTimeout(async () => {
+    _manifestTimer = null;
+    try { await driveSaveHistoriManifest(readHistoriSafe()); } catch {}
+  }, 800);
+}
+
+// ==== Upload PDF asli: DriveSync/DriveQueue first ====
+async function uploadViaDriveQueue(file, contentHash) {
+  if (!file) throw new Error('File kosong');
+  if (!window.DriveQueue?.enqueueOrUpload && !window.DriveSync?.uploadPdf) {
+    return { ok: false, reason: 'NO_API' };
+  }
+
+  try {
+    // Pakai queue kalau ada — langsung upload bila online & login, atau di-queue jika tidak
+    if (window.DriveQueue?.enqueueOrUpload) {
+      const { uploaded } = await DriveQueue.enqueueOrUpload(file, contentHash);
+      if (uploaded) {
+        showToast('☁️ Tersimpan ke Google Drive', 2500, 'success');
+        return { ok: true, immediate: true };
+      }
+      showToast('☁️ Dijadwalkan ke Google Drive (offline/tertunda)', 2800, 'info');
+      return { ok: true, immediate: false };
+    }
+    // Fallback langsung via DriveSync
+    await DriveSync.uploadPdf(file, null, null, { simpleName: true });
+    showToast('☁️ Tersimpan ke Google Drive', 2500, 'success');
+    return { ok: true, immediate: true };
+  } catch (e) {
+    return { ok: false, reason: String(e?.message || e) };
+  }
+}
+
+// ==== (Opsional) GAPI FALLBACK jika memang gapi client tersedia ====
+async function driveIsReady_gapi() {
+  try { return !!(window.gapi?.client?.drive && window.gapi.client.getToken()); }
+  catch { return false; }
+}
+async function driveEnsureRoot_gapi(){
+  const DRIVE_ROOT_NAME = 'Bribox Kanpus';
+  const q = [
+    `mimeType='application/vnd.google-apps.folder'`,
+    `name='${DRIVE_ROOT_NAME.replace(/'/g,"\\'")}'`,
+    `'root' in parents`,
+    `trashed=false`
+  ].join(' and ');
+  const res = await gapi.client.drive.files.list({ q, fields:'files(id,name)', spaces:'drive' });
+  if (res?.result?.files?.length) return res.result.files[0].id;
+  const create = await gapi.client.drive.files.create({
+    fields:'id',
+    resource:{ name:DRIVE_ROOT_NAME, mimeType:'application/vnd.google-apps.folder', parents:['root'] }
+  });
+  return create.result.id;
+}
+async function driveFindByHash_gapi(parentId, contentHash) {
   const q = [
     `'${parentId}' in parents`,
     `trashed=false`,
@@ -312,27 +443,23 @@ async function driveFindByHash(parentId, contentHash) {
   const res = await gapi.client.drive.files.list({ q, fields: 'files(id,name)', spaces: 'drive' });
   return res?.result?.files?.[0] || null;
 }
-
-async function driveUploadPdfOriginal({ file, contentHash, meta, parentId, filename }) {
+async function driveUploadPdfOriginal_gapi({ file, contentHash, parentId }) {
   const boundary = '-------314159265358979323846';
   const delimiter = `\r\n--${boundary}\r\n`;
   const closeDelim = `\r\n--${boundary}--`;
-
   const metadata = {
-    name: filename || (file?.name || 'document.pdf'),
+    name: (file?.name || 'document.pdf'),
     parents: [parentId],
     mimeType: 'application/pdf',
     appProperties: {
       contentHash: contentHash || '',
       module: 'trackmate',
-      uploadedAt: new Date().toISOString(),
-      ...(meta && typeof meta === 'object' ? { metaV: String(meta?.v ?? 1) } : {})
+      uploadedAt: new Date().toISOString()
     },
-    description: 'BRIBOX KANPUS original PDF (auto-synced)',
+    description: 'BRIBOX KANPUS original PDF (auto-synced)'
   };
-
   const base64Data = await base64FromBlobAsync(file);
-  const multipartBody =
+  const body =
     delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
     JSON.stringify(metadata) +
     delimiter + 'Content-Type: application/pdf\r\nContent-Transfer-Encoding: base64\r\n\r\n' +
@@ -343,44 +470,39 @@ async function driveUploadPdfOriginal({ file, contentHash, meta, parentId, filen
     method: 'POST',
     params: { uploadType: 'multipart', fields: 'id' },
     headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
-    body: multipartBody
+    body
   });
   return res?.result?.id || null;
 }
 
-async function tryUploadOriginalToDrive(file, contentHash, meta) {
-  if (!await driveIsReady()) { showToast('ℹ Google Drive belum tersambung', 2500, 'info'); return false; }
-  const timeout = (ms) => new Promise((_,rej)=>setTimeout(()=>rej(new Error('Drive upload timeout')), ms));
-  try {
-    const parentId = await driveEnsureRoot();
+// API yang dipakai handler Copy
+async function tryUploadOriginalToDrive(file, contentHash /*, metaIgnored */) {
+  // A) Jalur utama: DriveQueue/DriveSync
+  const q = await uploadViaDriveQueue(file, contentHash);
+  if (q.ok) return true;
 
-    // dedupe: jika sudah ada di folder Bribox Kanpus → skip upload
-    const exist = await driveFindByHash(parentId, contentHash);
-    if (exist?.id) { showToast('☁️ Sudah ada di Google Drive', 2200, 'info'); return true; }
+  // B) Fallback opsional: hanya kalau gapi client benar2 tersedia
+  if (await driveIsReady_gapi()) {
+    try {
+      const parentId = await driveEnsureRoot_gapi();
+      const dup      = await driveFindByHash_gapi(parentId, contentHash);
+      if (dup?.id) { showToast('☁️ Sudah ada di Google Drive', 2200, 'info'); return true; }
 
-    const driveId = await Promise.race([
-      driveUploadPdfOriginal({
-        file,
-        contentHash,
-        meta: meta || null,
-        parentId,
-        filename: file?.name || `original-${contentHash}.pdf`
-      }),
-      timeout(15000)
-    ]);
-    if (driveId) { showToast('☁️ Tersimpan ke Google Drive', 2500, 'success'); return true; }
-    showToast('⚠ Gagal simpan ke Drive', 3500, 'warn'); return false;
-  } catch (e) {
-    console.warn('Drive upload error:', e);
-    showToast('⚠ Gagal simpan ke Drive', 3500, 'warn');
-    return false;
+      const id = await driveUploadPdfOriginal_gapi({ file, contentHash, parentId });
+      if (id) { showToast('☁️ Tersimpan ke Google Drive', 2500, 'success'); return true; }
+    } catch (e) {
+      console.warn('gapi fallback error:', e);
+    }
   }
+
+  showToast('ℹ Google Drive belum tersambung', 2500, 'info');
+  return false;
 }
 
-/* ========= Helpers ========= */
+// ---------- Helpers ----------
 const clean = (x) => String(x || '')
-  .replace(/[\u00A0\u2007\u202F]/g, ' ')  // NBSP family -> spasi biasa
-  .replace(/\u00C2/g, '')                 // buang 'Â' sisa decode
+  .replace(/[\u00A0\u2007\u202F]/g, ' ')
+  .replace(/\u00C2/g, '')
   .replace(/\s+/g, ' ')
   .trim();
 function stripLeadingColon(s) { return (s || '').replace(/^\s*:+\s*/, ''); }
@@ -391,44 +513,31 @@ function formatTanggalIndonesia(tanggal) {
   return `${dd} ${bulan[parseInt(mm,10)-1]} ${yyyy}`;
 }
 function extractFlexibleBlock(lines, startLabel, stopLabels = []) {
-  const norm = s => (s || '')
-    .replace(/[\u00A0\u2007\u202F]/g, ' ')   // NBSP family -> space
-    .replace(/\s+/g, ' ')
-    .trim();
-
+  const norm = s => (s || '').replace(/[\u00A0\u2007\u202F]/g, ' ').replace(/\s+/g, ' ').trim();
   const text = (lines || []).map(x => x || '').join('\n');
-
   const startRe = new RegExp(`${startLabel}\\s*:\\s*`, 'i');
   const mStart  = startRe.exec(text);
   if (!mStart) return '';
-
   const tail = text.slice(mStart.index + mStart[0].length);
-
   const stopParts = [];
   for (const lbl of stopLabels) stopParts.push(`${lbl}\\s*:\\s*`);
-  if (stopLabels.some(s => /^tanggal$/i.test(s))) {
-    stopParts.push(`Tanggal(?:\\s*Tiket)?\\s+\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}`);
-  }
-  if (stopLabels.some(s => /^kantor\\s*cabang$/i.test(s))) {
-    stopParts.push(`(?<!^)Kantor\\s*Cabang(?!\\s*:)`);
-  }
+  if (stopLabels.some(s => /^tanggal$/i.test(s))) stopParts.push(`Tanggal(?:\\s*Tiket)?\\s+\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}`);
+  if (stopLabels.some(s => /^kantor\\s*cabang$/i.test(s))) stopParts.push(`(?<!^)Kantor\\s*Cabang(?!\\s*:)`);
   stopParts.push(`[\\r\\n]+[A-Za-z][A-Za-z/() ]+\\s*:\\s*`);
-
   const stopPattern = stopParts.join('|');
   const cutRe = new RegExp(`([\\s\\S]*?)(?=${stopPattern})`, 'i');
   const mCut  = cutRe.exec(tail);
   const captured = mCut ? mCut[1] : tail;
-
   return norm(captured);
 }
 
-/* ========= State ========= */
+// ---------- State ----------
 let unitKerja = "-", kantorCabang = "-", tanggalFormatted = "-", tanggalRaw = "",
     problem = "-", berangkat = "-", tiba = "-", mulai = "-", selesai = "-",
     solusi = "-", jenisPerangkat = "-", serial = "-", merk = "-", type = "-",
     pic = "-", status = "-";
 
-/* ========= Events ========= */
+// ---------- Events ----------
 lokasiSelect?.addEventListener("change", updateOutput);
 
 fileInput?.addEventListener('change', async function () {
@@ -468,21 +577,15 @@ fileInput?.addEventListener('change', async function () {
       merk            = clean(rawText.match(/Merk\s*:\s*(.+)/)?.[1]) || '-';
       type            = clean(rawText.match(/Type\s*:\s*(.+)/)?.[1]) || '-';
       (() => {
-        // berhenti sebelum label berikutnya
         const stops = [
           'Jabatan','Jenis Perangkat','Serial Number','SN','Merk','Type',
           'Status','STATUS','Tanggal','Nama','Tanda','Cap','Progress',
           'Unit Kerja','Kantor Cabang'
         ];
-        // dukung "Pelapor :" ATAU "PIC :"
         const block = extractFlexibleBlock(lines, '(?:Pelapor|PIC)', stops) || '';
-
-        // Format yang didukung: "Nama" atau "Nama (Jabatan)"
         const m = block.match(/^\s*([^()\[\]\n]+?)\s*(?:[\(\[]\s*([^()\[\]]+?)\s*[\)\]])?\s*$/);
         const name = clean(m ? m[1] : block);
-        // kalau ada label "Jabatan :" terpisah, angkut juga
         const jab  = clean(m && m[2] ? m[2] : extractFlexibleBlock(lines, 'Jabatan', stops) || '');
-
         pic = jab ? `${name} (${jab})` : (name || '-');
       })();
 
@@ -497,7 +600,7 @@ fileInput?.addEventListener('change', async function () {
   reader.readAsArrayBuffer(file);
 });
 
-/* ========= Output ========= */
+// ---------- Output ----------
 function updateOutput() {
   const lokasiTerpilih = lokasiSelect?.value || '';
   const unitKerjaLengkap = (lokasiTerpilih && unitKerja !== '-') ? `${unitKerja} (${lokasiTerpilih})` : unitKerja;
@@ -530,33 +633,21 @@ Status : ${status}`;
   if (output) output.textContent = finalOutput;
 }
 
-/* ========= Storage helpers (robust) ========= */
-function readHistoriSafe(){
-  if (window.AccountStore?.loadHistori) {
-    // sinkron (halaman butuh array langsung): pakai cache localStorage scoped
-    try {
-      const key = window.AccountStore.nsKey('pdfHistori');
-      const raw = localStorage.getItem(key);
-      if (raw) return JSON.parse(raw);
-    } catch {}
-  }
+// ---------- Storage helpers (per-uid) ----------
+function readHistoriSafe() {
   try {
-    const raw = localStorage.getItem('pdfHistori') ?? '[]';
+    const raw = localStorage.getItem(userHistKey()) ?? '[]';
     const arr = JSON.parse(raw);
     return Array.isArray(arr) ? arr : [];
   } catch { return []; }
 }
-function writeHistori(arr){
-  if (window.AccountStore?.saveHistori) { window.AccountStore.saveHistori(arr); return; }
-  localStorage.setItem('pdfHistori', JSON.stringify(Array.isArray(arr) ? arr : []));
+function writeHistori(arr) {
+  const safe = JSON.stringify(Array.isArray(arr) ? arr : []);
+  localStorage.setItem(userHistKey(), safe);       // ruang user aktif
+  localStorage.setItem(PUBLIC_HIST_KEY, safe);     // alias publik (kompat modul lain)
+  scheduleSaveManifest();                          // sinkron ke Drive (debounce)
 }
-
-// Optional: saat DOM siap, trigger pre-load dari Drive supaya cache scoped keisi
-document.addEventListener('DOMContentLoaded', ()=>{ try{ window.AccountStore?.loadHistori?.(); }catch{} });
-
-/* Duplikat kalau:
-   - hash sama (prioritas), atau
-   - fallback: nama & size sama (untuk entri lama tanpa hash) */
+/* Duplikat: hash sama (prioritas), atau fallback nama+size (untuk entri lama) */
 function isDuplicateRow(row, file, hash) {
   if (!row) return false;
   if (hash && row.contentHash && row.contentHash === hash) return true;
@@ -566,38 +657,30 @@ function isDuplicateRow(row, file, hash) {
   return false;
 }
 
-/* ========= Copy & Save Histori (single final toast) ========= */
+// ---------- Copy & Save Histori ----------
 copyBtn?.addEventListener("click", async () => {
   try {
-    // 0) Copy teks ke clipboard (pakai API modern + fallback)
+    // copy text
     const text = (typeof output !== "undefined" && output?.textContent) ? output.textContent : "";
     try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+      else {
         const ta = document.createElement("textarea");
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
+        ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove();
       }
-    } catch (_) {}
-    if (copyBtn) {
-      copyBtn.textContent = "✔ Copied!";
-      setTimeout(() => (copyBtn.textContent = "Copy"), 1500);
-    }
+    } catch {}
+    if (copyBtn) { copyBtn.textContent = "✔ Copied!"; setTimeout(() => (copyBtn.textContent = "Copy"), 1500); }
 
-    // 1) Validasi file
+    // validasi file
     const file = fileInput?.files?.[0];
     if (!file) { showToast("⚠ Tidak ada file PDF yang dipilih.", 3500, "warn"); return; }
 
-    // 2) Hash (pakai fallback jika hashing error)
+    // hash
     let contentHash;
     try { contentHash = await sha256File(file); }
     catch { contentHash = `fz_${file.size}_${file.lastModified}_${Math.random().toString(36).slice(2,10)}`; }
 
-    // 3) Siapkan entri histori
+    // entri histori
     const unitKerjaVal  = (typeof unitKerja === "string" ? unitKerja : (document.querySelector("#unitKerja")?.value || "")) || "";
     const tanggalRawVal = (typeof tanggalRaw  === "string" ? tanggalRaw  : (document.querySelector("#tanggalPekerjaan")?.value || "")) || "";
     const namaUkerBersih = (typeof stripLeadingColon === "function" ? (stripLeadingColon(unitKerjaVal) || "-") : (unitKerjaVal || "-"));
@@ -611,61 +694,36 @@ copyBtn?.addEventListener("click", async () => {
       uploadedAt: new Date().toISOString()
     };
 
-    // 4) Cek duplikat (hash / name+size)
+    // duplikat?
     const histori = readHistoriSafe();
     const exists = histori.length > 0 && histori.some(r => isDuplicateRow(r, file, contentHash));
-    if (exists) { 
-      // tetap coba upload ke Drive (dedupe by hash akan mencegah dobel di Drive)
+    if (exists) {
+      // tetap coba upload (DriveQueue akan dedupe)
       try {
-        // hitung meta langsung dari file agar tidak bergantung ke IDB
-        let metaForDrive = null;
-        try {
-          const buf = await file.arrayBuffer();
-          metaForDrive = await autoCalibratePdf(buf);
-        } catch {}
-        await tryUploadOriginalToDrive(file, contentHash, metaForDrive);
+        await tryUploadOriginalToDrive(file, contentHash);
       } catch {}
-      showToast("ℹ Sudah ada di histori", 3000, "info"); 
-      return; 
+      showToast("ℹ Sudah ada di histori", 3000, "info");
+      return;
     }
 
-    // 5) Tambah ke histori localStorage (langsung)
+    // simpan ke localStorage (ruang user) & alias
     histori.push(newEntry);
     writeHistori(histori);
 
-    // === Hitung meta SEKALI (dipakai IDB & Drive) ===
-    let metaForBoth = null;
-    try {
-      const buf = await file.arrayBuffer();
-      metaForBoth = await autoCalibratePdf(buf);
-    } catch {}
-
-    // 6) Jalan paralel: simpan ke IDB & upload ke Drive
-    const TIMEOUT_MS = 12000; // naikin batas tunggu IDB
+    // paralel: IDB + Drive
+    const TIMEOUT_MS = 12000;
     const idbPromise = Promise.race([
       (async () => {
-        await savePdfToIndexedDB_keepSchema(file, { contentHash });   // jalur lama
-        await saveBlobByHash(file, contentHash);                       // jalur baru (juga simpan meta di fungsi)
+        await savePdfToIndexedDB_keepSchema(file, { contentHash });
+        await saveBlobByHash(file, contentHash);
       })(),
       new Promise((_, rej) => setTimeout(() => rej(new Error("IDB timeout")), TIMEOUT_MS))
-    ]).catch(err => {
-      console.warn("IndexedDB gagal/timeout:", err);
-      // gak fatal — kita tetap lanjut; user akan dapat toast kuning di bawah
-      return null;
-    });
+    ]).catch(err => { console.warn("IndexedDB gagal/timeout:", err); return null; });
 
-    const drivePromise = (async () => {
-      try {
-        await tryUploadOriginalToDrive(file, contentHash, metaForBoth);
-      } catch (e) {
-        console.warn('Drive upload skipped/error:', e);
-      }
-    })();
+    const drivePromise = tryUploadOriginalToDrive(file, contentHash);
 
-    // tunggu keduanya selesai (sukses/gagal tidak menghentikan yang lain)
     await Promise.allSettled([idbPromise, drivePromise]);
 
-    // Notifikasi hasil IDB (kalau gagal, kasih peringatan; kalau berhasil, hijau)
     if (await idbPromise === null) {
       showToast("⚠ Histori disimpan. File PDF asli gagal disimpan lokal (coba ulang).", 5000, "warn");
     } else {
@@ -678,12 +736,8 @@ copyBtn?.addEventListener("click", async () => {
   }
 });
 
-
-/* ========= Toast util (FAST & RELIABLE, mobile friendly) =========
-   Pakai: showToast("Berhasil", 3000, "success"|"info"|"warn")
-*/
+// ---------- Toast util ----------
 function showToast(message, duration = 3000, variant = "success") {
-  // 1) Ambil / buat elemen tunggal
   let el = document.querySelector(".toast");
   if (!el) {
     el = document.createElement("div");
@@ -692,46 +746,21 @@ function showToast(message, duration = 3000, variant = "success") {
     el.setAttribute("aria-live", "polite");
     document.body.appendChild(el);
   }
-
-  // 2) Tema warna sederhana via inline style (kompatibel dengan CSS kamu)
-  const bg =
-    variant === "info" ? "#0d6efd" :
-    variant === "warn" ? "#f59e0b" :
-    "#28a745";
+  const bg = variant === "info" ? "#0d6efd" : variant === "warn" ? "#f59e0b" : "#28a745";
   el.style.background = bg;
-
-  // 3) Set teks & reset state
   el.textContent = String(message);
   el.classList.remove("show", "hiding");
   if (el._hideTimer) clearTimeout(el._hideTimer);
-
-  // 4) iOS-safe: commit style dulu baru tambahkan .show (double rAF)
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      el.classList.add("show");
-    });
-  });
-
-  // 5) Auto-hide + cleanup setelah transisi
+  requestAnimationFrame(() => { requestAnimationFrame(() => { el.classList.add("show"); }); });
   el._hideTimer = setTimeout(() => {
-    el.classList.add("hiding");
-    el.classList.remove("show");
-    const onEnd = () => {
-      el.classList.remove("hiding");
-      el.removeEventListener("transitionend", onEnd);
-    };
+    el.classList.add("hiding"); el.classList.remove("show");
+    const onEnd = () => { el.classList.remove("hiding"); el.removeEventListener("transitionend", onEnd); };
     el.addEventListener("transitionend", onEnd, { once: true });
   }, duration);
-
-  // 6) Klik untuk tutup cepat (opsional)
-  el.onclick = () => {
-    if (el._hideTimer) clearTimeout(el._hideTimer);
-    el.classList.add("hiding");
-    el.classList.remove("show");
-  };
+  el.onclick = () => { if (el._hideTimer) clearTimeout(el._hideTimer); el.classList.add("hiding"); el.classList.remove("show"); };
 }
 
-/* ========= Debug & Migrasi (opsional) ========= */
+// ---------- Debug & Migrasi (opsional) ----------
 async function debugListPDF() {
   const database = await ensureDb();
   const out = { pdfs: [], pdfBlobs: [] };
