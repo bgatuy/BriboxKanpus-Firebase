@@ -1,17 +1,25 @@
-// monthly-data.js — INDIVIDUAL BUILD (XLSX only, per-device Active Technician, fixed signatures)
-// + Cloud mirror: pull/push via MonthlySync (Drive JSON)
+// monthly-data.js — XLSX export + per-akun storage + Drive mirror
 (function () {
   const STORAGE_KEY = "monthlyReports";
   const ACTIVE_TECH_KEY = "activeTechnician";
+
+  /* ========== USER-SCOPE (per akun) ========== */
+  const LS = {
+    getItem(k){ return (window.AccountNS?.getItem?.(k)) ?? localStorage.getItem(k); },
+    setItem(k,v){
+      if (window.AccountNS?.setItem) window.AccountNS.setItem(k, v);
+      else localStorage.setItem(k, v);
+    }
+  };
 
   /* ========= SIDEBAR ========= */
   const sidebar   = document.querySelector('.sidebar');
   const overlay   = document.getElementById('sidebarOverlay') || document.querySelector('.sidebar-overlay');
   const sidebarLinks = document.querySelectorAll('.sidebar a');
 
-  function openSidebar() { sidebar.classList.add('visible'); overlay?.classList.add('show'); document.body.style.overflow = 'hidden'; }
-  function closeSidebar() { sidebar.classList.remove('visible'); overlay?.classList.remove('show'); document.body.style.overflow = ''; }
-  function toggleSidebar() { sidebar.classList.contains('visible') ? closeSidebar() : openSidebar(); }
+  function openSidebar() { sidebar?.classList.add('visible'); overlay?.classList.add('show'); document.body.style.overflow = 'hidden'; }
+  function closeSidebar() { sidebar?.classList.remove('visible'); overlay?.classList.remove('show'); document.body.style.overflow = ''; }
+  function toggleSidebar() { sidebar?.classList.contains('visible') ? closeSidebar() : openSidebar(); }
   window.toggleSidebar = toggleSidebar;
 
   overlay?.addEventListener('click', closeSidebar);
@@ -39,15 +47,34 @@
   const pad = (n) => String(n).padStart(2, "0");
   const norm = (s) => String(s || "").toLowerCase().normalize("NFKD").replace(/\s+/g, " ").trim();
 
-  function getActiveTechnician(){ try{ return localStorage.getItem(ACTIVE_TECH_KEY) || ""; }catch{ return ""; } }
-  function loadReports() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; } }
-  function saveReports(arr) { localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); }
-  function showToast(msg) { const t = $("toast"); if(!t) return; t.textContent = msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), 1600); }
+  function getActiveTechnician(){
+    try { return LS.getItem(ACTIVE_TECH_KEY) || ""; } catch { return ""; }
+  }
+  function setActiveTechnician(name){
+    try { LS.setItem(ACTIVE_TECH_KEY, String(name||"")); } catch {}
+  }
 
-  // ===== Cloud mirror adapters
-  async function monthlyGetLocal(){ try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]'); }catch{ return []; } }
-  async function monthlySetLocal(arr){ localStorage.setItem(STORAGE_KEY, JSON.stringify(arr||[])); }
-  function pushMirrorSilent(){ try{ return window.MonthlySync?.queuePush ? window.MonthlySync.queuePush(monthlyGetLocal) : Promise.resolve(); }catch{ return Promise.resolve(); } }
+  function loadReports() {
+    try { return JSON.parse(LS.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
+  }
+  function saveReports(arr) {
+    LS.setItem(STORAGE_KEY, JSON.stringify(arr || []));
+  }
+  function showToast(msg) {
+    const t = $("toast"); if(!t) return;
+    t.textContent = msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), 1600);
+  }
+
+  // ===== Cloud mirror adapters (per akun via LS wrapper)
+  async function monthlyGetLocal(){ try{ return JSON.parse(LS.getItem(STORAGE_KEY)||'[]'); }catch{ return []; } }
+  async function monthlySetLocal(arr){ LS.setItem(STORAGE_KEY, JSON.stringify(arr||[])); }
+  function pushMirrorSilent(){
+    try{
+      return window.MonthlySync?.queuePush
+        ? window.MonthlySync.queuePush(async ()=>JSON.parse(LS.getItem(STORAGE_KEY)||'[]'))
+        : Promise.resolve();
+    }catch{ return Promise.resolve(); }
+  }
 
   // ===== pick month (URL -> latest in storage -> now)
   function pickActiveMonth() {
@@ -86,11 +113,15 @@
     const activeTech = getActiveTechnician();
     let rows = loadReports().filter(r=>r.month===month);
 
-    if (activeTech) rows = rows.filter(r => (r.teknisi||"") === activeTech); // lock per-individu
+    if (activeTech) rows = rows.filter(r => (r.teknisi||"") === activeTech); // lock per-individu (opsional)
 
     if(q){
       rows = rows.filter(r=>{
-        const hay = [r.tanggalLabel,r.date,r.teknisi,r.lokasiDari,r.lokasiKe,r.jenis,r.detail,r.status,r.keterangan,r.jamMasuk,r.jamBerangkat,r.jamTiba,r.jamMulai,r.jamSelesai,r.durasiPenyelesaianStr,r.waktuTempuhStr].map(norm).join(" ");
+        const hay = [
+          r.tanggalLabel,r.date,r.teknisi,r.lokasiDari,r.lokasiKe,r.jenis,r.detail,r.status,
+          r.keterangan,r.jamMasuk,r.jamBerangkat,r.jamTiba,r.jamMulai,r.jamSelesai,
+          r.durasiPenyelesaianStr,r.waktuTempuhStr
+        ].map(norm).join(" ");
         return hay.includes(q);
       });
     }
@@ -100,6 +131,8 @@
     if (empty) empty.style.display = rows.length ? "none" : "block";
     if (typeof tblCap !== 'undefined' && tblCap) tblCap.textContent = `${rows.length} entri ditampilkan`;
   }
+  // expose buat HTML yang manggil window.applyFilters()
+  window.applyFilters = applyFilters;
 
   const esc = (s)=> String(s).replace(/[&<>"']/g,(m)=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
 
@@ -296,7 +329,7 @@
       const uniqTek = [...new Set(rowsAll.map(r => (r.teknisi||"").trim()).filter(Boolean))];
       if (uniqTek.length === 0) { showToast('Nama teknisi tidak ditemukan di data.'); return; }
       if (uniqTek.length > 1)   { showToast('Ditemukan >1 nama teknisi. Rapikan/filter dulu sebelum export.'); return; }
-      const teknisiPembuat = uniqTek[0]; // << deklarasi SEKALI di sini
+      const teknisiPembuat = uniqTek[0];
 
       const [yyStr, mmStr] = String(month||"").split("-");
       const yy=Number(yyStr||new Date().getFullYear());
@@ -421,7 +454,6 @@
       ws.getCell(`N${sigTop+1}`).font = { bold: true };
       ws.getCell(`N${sigTop+1}`).alignment = { horizontal: 'center', vertical: 'middle' };
 
-      // gunakan teknisiPembuat dari atas (tanpa redeclare)
       ws.getCell(`N${sigTop+5}`).value = teknisiPembuat;
       ws.getCell(`N${sigTop+5}`).font  = { bold: true, underline: true };
       ws.getCell(`N${sigTop+5}`).alignment = { horizontal: 'center', vertical: 'middle' };
@@ -507,7 +539,7 @@
   document.addEventListener('DOMContentLoaded', async ()=>{
     try{
       if (window.MonthlySync?.pull) {
-        await window.MonthlySync.pull(monthlyGetLocal, monthlySetLocal, applyFilters);
+        await MonthlySync.pull(monthlyGetLocal, monthlySetLocal, applyFilters);
       }
     }catch{}
   });

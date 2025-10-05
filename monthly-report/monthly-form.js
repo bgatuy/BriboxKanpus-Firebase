@@ -1,6 +1,24 @@
 (function(){
   const STORAGE_KEY = 'monthlyReports';
 
+  /* ============== USER-SCOPE (per akun) ============== */
+  const LS = {
+    getItem(k){ return (window.AccountNS?.getItem?.(k)) ?? localStorage.getItem(k); },
+    setItem(k,v){
+      if (window.AccountNS?.setItem) window.AccountNS.setItem(k, v);
+      else localStorage.setItem(k, v);
+    }
+  };
+  function loadReports(){
+    try { return JSON.parse(LS.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
+  }
+  function saveReports(arr){
+    const safe = JSON.stringify(Array.isArray(arr) ? arr : []);
+    LS.setItem(STORAGE_KEY, safe);
+    // push ke Drive (debounced) supaya device lain kebagian
+    if (window.MonthlySync?.queuePush) window.MonthlySync.queuePush(async ()=>JSON.parse(LS.getItem(STORAGE_KEY)||'[]'));
+  }
+
   /* ========= SIDEBAR ========= */
   const sidebar   = document.querySelector('.sidebar');
   const overlay   = document.getElementById('sidebarOverlay') || document.querySelector('.sidebar-overlay');
@@ -73,16 +91,19 @@
   const defaultMonth = () => `${today.getFullYear()}-${pad(today.getMonth()+1)}`;
   const defaultDate  = () => `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
 
-  function loadReports(){ try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; } }
-  function saveReports(arr){ localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); }
-
-  function refreshCountForMonth(month){ if (countBulan) countBulan.textContent = loadReports().filter(x=>x.month===month).length; }
+  function refreshCountForMonth(month){
+    if (!countBulan) return;
+    try {
+      const all = loadReports();
+      countBulan.textContent = all.filter(x=>x.month===month).length;
+    } catch { countBulan.textContent = '0'; }
+  }
   function setLinkTargets(month){
     const href = `monthly-data.html?month=${encodeURIComponent(month)}`;
     if (linkData) linkData.href = href;
     if (btnLihatBulan) btnLihatBulan.href = href;
   }
-  function showToast(msg){
+  function showToastMsg(msg){
     if(!toast) return;
     toast.textContent = msg; toast.classList.add('show'); setTimeout(()=> toast.classList.remove('show'), 1600);
   }
@@ -126,13 +147,13 @@
     } else { durasiPenyelesaian.value = '0:00'; }
   }
 
-  // ===== Cloud mirror adapters (Drive JSON)
+  // ===== Cloud mirror adapters (Drive JSON) – per akun via AccountNS di LS
   async function monthlyGetLocal(){
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
+    try { return JSON.parse(LS.getItem(STORAGE_KEY) || '[]'); }
     catch { return []; }
   }
   async function monthlySetLocal(arr){
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(arr || []));
+    LS.setItem(STORAGE_KEY, JSON.stringify(arr || []));
   }
 
   // ===== init
@@ -152,7 +173,7 @@
     refreshCountForMonth(bulan.value);
   });
 
-  // Tarik data cloud → merge ke lokal → refresh counter (biar lintas device konsisten)
+  // Tarik data cloud → merge ke lokal → refresh counter (lintas device)
   (async () => {
     try {
       if (window.MonthlySync?.pull) {
@@ -175,7 +196,7 @@
     const month = (bulan.value || '').trim();
     const dateStr = (tanggal.value || '').trim();
     const tech = (teknisi.value || '').trim();
-    if(!month || !dateStr || !tech){ showToast('Bulan, Tanggal, dan Teknisi wajib diisi.'); return; }
+    if(!month || !dateStr || !tech){ showToastMsg('Bulan, Tanggal, dan Teknisi wajib diisi.'); return; }
 
     computeAutoFields(); // ensure latest
 
@@ -212,17 +233,17 @@
       updatedAt: new Date().toISOString()
     };
 
-    // Simpan lokal
+    // Simpan per-akun (LS via AccountNS) + trigger push Drive
     const all = loadReports(); all.push(rec); saveReports(all);
 
-    // Mirror ke Drive (debounced, silent)
+    // Mirror ke Drive (debounced, silent) – tambahan guard
     try {
       if (window.MonthlySync?.queuePush) {
-        await window.MonthlySync.queuePush(monthlyGetLocal);
+        await window.MonthlySync.queuePush(async ()=>JSON.parse(LS.getItem(STORAGE_KEY)||'[]'));
       }
     } catch {}
 
-    showToast('Data tersimpan.');
+    showToastMsg('Data tersimpan.');
     form.reset(); bulan.value = month; tanggal.value = defaultDate();
     setLinkTargets(month); refreshCountForMonth(month); computeAutoFields();
   });

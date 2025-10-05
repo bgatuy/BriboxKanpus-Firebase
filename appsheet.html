@@ -12,7 +12,7 @@
   <script src="config.local.js"></script>
   <script>if(!window.__CONFIG)document.write('<script src="config.sample.js"><\/script>');</script>
 </head>
-<body>
+<body data-page="appsheet">
   <div class="dashboard">
     <aside class="sidebar">
       <h2 class="logo"><img src="favicon.png" alt="Logo" class="logo-icon"/> BRIBOX KANPUS</h2>
@@ -35,11 +35,11 @@
 
     <main class="main">
       <header class="dashboard-header">
-        <button class="sidebar-toggle-btn" onclick="toggleSidebar()">☰</button>
-        <h1><span class="material-icons">description</span> AppSheet</h1>
+        <button class="sidebar-toggle-btn" type="button" aria-label="Toggle sidebar" onclick="toggleSidebar()">☰</button>
+        <h1><span class="material-icons" aria-hidden="true">description</span> AppSheet</h1>
         <div class="header-actions">
           <button id="btnAuth" class="btn" type="button">Login Google</button>
-          <button id="toggleModeBtn" onclick="toggleDarkMode()">🌙</button>
+          <button id="toggleModeBtn" type="button" onclick="toggleDarkMode()" aria-pressed="false" aria-label="Toggle dark mode">🌙</button>
         </div>
       </header>
 
@@ -59,14 +59,14 @@
         <h3>Upload Form PDF Kalian Disini Lalu Pilih Lokasi Divisi!</h3>
 
         <label for="pdfFile" class="upload-label">
-          <span class="material-icons">picture_as_pdf</span> Pilih File PDF
+          <span class="material-icons" aria-hidden="true">picture_as_pdf</span> Pilih File PDF
         </label>
         <input type="file" id="pdfFile" accept="application/pdf"/>
 
         <div class="form-group">
           <label for="inputLokasi">Pilih Lokasi Divisi :</label>
           <select id="inputLokasi">
-           <option value="">-- Pilih Lokasi --</option>
+            <option value="">-- Pilih Lokasi --</option>
             <option value="BRI 1 Lt. Split">BRI 1 Lt. Split</option>
             <option value="BRI 1 Lt. 2">BRI 1 Lt. 2</option>
             <option value="BRI 1 Lt. 3">BRI 1 Lt. 3</option>
@@ -144,17 +144,18 @@
           </select>
         </div>
 
-        <pre id="output" class="output-preview">Text akan muncul di sini...</pre>
+        <pre id="output" class="output-preview" aria-live="polite">Text akan muncul di sini...</pre>
         <button id="copyBtn" class="primary" type="button">Copy</button>
       </section>
     </main>
   </div>
 
+  <!-- PDF.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
   <script>
     if (window.pdfjsLib && (!pdfjsLib.GlobalWorkerOptions.workerSrc || pdfjsLib.GlobalWorkerOptions.workerSrc === '')) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc ='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
-  }
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+    }
   </script>
 
   <!-- Prefs -->
@@ -172,11 +173,13 @@
   <!-- Drive core -->
   <script src="drive-sync.js?v=pure-oauth-2"></script>
   <script src="drive-queue.js" defer></script>
-  
 
-  <!-- Banner connect: auto-resume + broadcast sinkron antar halaman -->
+  <!-- Banner connect: auto-resume + broadcast + init queue -->
   <script>
   document.addEventListener('DOMContentLoaded', async () => {
+    // init queue di halaman ini juga
+    try { window.DriveQueue?.init?.(); } catch {}
+
     const bar = document.getElementById('driveConnectBar');
     const btn = document.getElementById('btnConnectDrive');
 
@@ -184,7 +187,7 @@
     const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
     if (ok) { bar?.remove(); } else if (bar) { bar.style.display = 'block'; }
 
-    // 2) dengarkan broadcast dari halaman lain (tanpa refresh)
+    // 2) dengar broadcast antar tab
     const bc = ('BroadcastChannel' in window) ? new BroadcastChannel('bribox-drive') : null;
     bc?.addEventListener('message', (ev) => {
       if (ev.data?.type !== 'drive-auth') return;
@@ -202,14 +205,13 @@
   });
   </script>
 
-  <!-- FILE CHANGE: hanya simpan file yang dipilih ke state; TIDAK upload -->
+  <!-- File picker: hanya simpan state; upload ditangani di appsheet.js / queue -->
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       const pdfInput = document.getElementById('pdfFile');
       pdfInput?.addEventListener('change', () => {
-        window.currentFile = pdfInput.files?.[0] || null;  // dipakai trackmate.js saat Copy
+        window.currentFile = pdfInput.files?.[0] || null;  // dipakai oleh appsheet.js saat Copy
       });
-      // Catatan: Upload dilakukan diam-diam saat tombol "Copy" di trackmate.js
     });
   </script>
 

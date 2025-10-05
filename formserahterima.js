@@ -147,14 +147,29 @@ function collectRowsForPdf(){
   return rows;
 }
 
+function syncPickAllState(){
+  if (!pickAll) return;
+  const cbs = Array.from(document.querySelectorAll('#historiBody input.pick'));
+  if (!cbs.length){ pickAll.checked=false; pickAll.indeterminate=false; return; }
+  const allChecked = cbs.every(cb => cb.checked);
+  const anyChecked = cbs.some(cb => cb.checked);
+  pickAll.checked = allChecked;
+  pickAll.indeterminate = anyChecked && !allChecked;
+}
+
 function renderTabel(){
   if(!tbody) return;
   let data = getPdfHistori();
+
   if(!data.length){
-    // kalau kamu menambah kolom "Pilih", ubah colspan ke 7 (di HTML header)
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;">Belum ada data histori. Unggah PDF di Trackmate atau AppSheet.</td></tr>`;
+    const headerHasPick = !!document.getElementById('pickAll');
+    const colspan = headerHasPick ? 7 : 6;
+    tbody.innerHTML = `<tr><td colspan="${colspan}" style="text-align:center;">Belum ada data histori. Unggah PDF di Trackmate atau AppSheet.</td></tr>`;
+    // reset master checkbox state
+    if (pickAll){ pickAll.checked=false; pickAll.indeterminate=false; }
     return;
   }
+
   data = data
     .map((it, i) => ({ ...it, _idx: i }))
     .sort((a, b) => {
@@ -180,7 +195,7 @@ function renderTabel(){
       <td>${(item.namaUker || '-').replace(/\s+/g,' ').trim()}</td>
       <td>${item.tanggalPekerjaan || '-'}</td>
       <td>${item.fileName || '-'}</td>
-      <td><button class="danger btn-del" data-i="${idx}">Hapus</button></td>
+      <td><button class="danger btn-del" data-i="${idx}" type="button">Hapus</button></td>
     </tr>`;
   }).join('');
 
@@ -193,13 +208,12 @@ function renderTabel(){
  ********************/
 function openDb(){
   return new Promise((res, rej) => {
-    const req = indexedDB.open('PdfStorage'); // <— tanpa versi
+    const req = indexedDB.open('PdfStorage'); // <— tanpa versi (ambil latest)
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains('pdfs')) {
         db.createObjectStore('pdfs', { keyPath:'id', autoIncrement:true });
       }
-      // siapkan juga store baru bila suatu saat bump versi
       if (!db.objectStoreNames.contains('pdfBlobs')) {
         db.createObjectStore('pdfBlobs', { keyPath:'contentHash' });
       }
@@ -234,7 +248,7 @@ async function getAllPdfBuffersFromIndexedDB(preferredOrderNames = []) {
           getAllReq.onsuccess = async () => {
             const rows = getAllReq.result || [];
             for (const entry of rows) {
-              const blob = entry?.data; // di pdfs: data=Blob; di pdfBlobs: data=Blob
+              const blob = entry?.blob || entry?.data; // <= IMPORTANT: pdfBlobs.blob || pdfs.data
               const name = entry?.name || '(tanpa-nama)';
               if (!(blob instanceof Blob) || blob.type !== 'application/pdf' || !blob.size) continue;
               const buffer = await blob.arrayBuffer();
@@ -501,20 +515,6 @@ function getSelectedFromTable(){
   }));
 }
 
-// Sinkron master checkbox
-function syncPickAllState(){
-  if (!pickAll) return;
-  const cbs = Array.from(document.querySelectorAll('#historiBody input.pick'));
-  if (!cbs.length){ pickAll.checked=false; pickAll.indeterminate=false; return; }
-  const allChecked = cbs.every(cb => cb.checked);
-  const anyChecked = cbs.some(cb => cb.checked);
-  pickAll.checked = allChecked;
-  pickAll.indeterminate = anyChecked && !allChecked;
-}
-pickAll?.addEventListener('change', ()=> {
-  document.querySelectorAll('#historiBody input.pick').forEach(cb => cb.checked = pickAll.checked);
-});
-
 // jsPDF: bangun FORM CM saja
 async function buildFormCMBlob(){
   const { jsPDF } = window.jspdf;
@@ -748,8 +748,8 @@ async function generateOriginalsOnly(selected){
       text: x.text || '',
       fileName: x.fileName || null,
       fileHash: x.fileHash || x.contentHash || null,
-      tanggalPekerjaan: x.tanggalPekerjaan || x.tanggalPekerjaan || null,
-      namaUker: x.namaUker || x.namaUker || ''
+      tanggalPekerjaan: x.tanggalPekerjaan || null,
+      namaUker: x.namaUker || ''
     };
   }
   function mergeById(baseArr, addArr){
@@ -863,19 +863,9 @@ tbody?.addEventListener('click', async (e) => {
   try { await window.FSTSync?.queuePush?.(); } catch {}
 });
 
-
-btnReset?.addEventListener('click', async ()=>{
-  if(!confirm('Yakin reset semua histori (pdfHistori + IndexedDB)?')) return;
-  localStorage.removeItem('pdfHistori');
-  try{ await clearIndexedDB(); } catch{}
-  if (selNama) { selNama.selectedIndex = 0; selNama.value = ''; }
-  localStorage.removeItem(KEY_NAMA);
-  renderTabel();
-  // Push reset ke cloud
-  try { await window.FSTSync?.queuePush?.(); } catch {}
+pickAll?.addEventListener('change', ()=>{
+  document.querySelectorAll('#historiBody input.pick').forEach(cb => cb.checked = pickAll.checked);
 });
-
-window.addEventListener('storage', (e)=>{ if(e.key==='pdfHistori') renderTabel(); });
 
 // ========== TOMBOL LAMA: generate gabungan (semua) ==========
 btnGenerate?.addEventListener('click', async ()=>{
@@ -898,7 +888,8 @@ btnGenCombo?.addEventListener('click', async ()=>{
 btnGenCMOnly?.addEventListener('click', async ()=>{
   const tanggalInput = inputTanggalSerah?.value || '';
   if(!tanggalInput){ alert('Isi Tanggal Serah Terima dulu.'); return; }
-  try{ showSpinner(); await generateCMOnly(); }
+  try{ showSpinner(); const b = await buildFormCMBlob(); await downloadBlob(b,'Form Tanda Terima CM.pdf');
+       try{ if (typeof window.saveGeneratedPdfSilent === 'function') await window.saveGeneratedPdfSilent(b,'Form Tanda Terima CM'); }catch{} }
   catch(err){ console.error(err); alert('Gagal membuat FORM CM.'); }
   finally{ hideSpinner(); }
 });
@@ -925,6 +916,221 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   // Pull histori dari cloud ke lokal (merge) saat halaman dibuka
   try { await window.FSTSync?.pullCloudToLocal?.(); } catch {}
 });
+
+/* ===========================
+ *  AUTO-HYDRATE FROM DRIVE + PROGRESS UI
+ * =========================== */
+(function(){
+  const STORE_BLOBS = 'pdfBlobs';
+
+  // --- UI kecil di atas tabel ---
+  function ensureHydrateBanner(){
+    let el = document.getElementById('hydrateBanner');
+    if (el) return el;
+    el = document.createElement('div');
+    el.id = 'hydrateBanner';
+    el.setAttribute('role','status');
+    el.setAttribute('aria-live','polite');
+    el.innerHTML = `
+      <div class="hb-wrap">
+        <div class="hb-spinner" aria-hidden="true"></div>
+        <div class="hb-text">
+          <b>Menyelaraskan file dari Drive…</b>
+          <div class="hb-sub"><span id="hbCount">0</span>/<span id="hbTotal">0</span> file</div>
+        </div>
+        <div class="hb-bar"><div id="hbBar" class="hb-bar-fill" style="width:0%"></div></div>
+        <button id="hbClose" type="button" title="Sembunyikan" aria-label="Sembunyikan">✕</button>
+      </div>
+    `;
+    document.querySelector('.main')?.prepend(el);
+    document.getElementById('hbClose')?.addEventListener('click', ()=> el.remove());
+    return el;
+  }
+  function updateHydrateBanner(done, total){
+    const el = ensureHydrateBanner();
+    el.style.display = 'block';
+    el.classList.remove('hb-done');
+    const nDone = Math.max(0, Math.min(done, total||0));
+    el.querySelector('#hbCount').textContent = String(nDone);
+    el.querySelector('#hbTotal').textContent = String(total||0);
+    const pct = total ? Math.round((nDone/total)*100) : 0;
+    el.querySelector('#hbBar').style.width = pct + '%';
+    el.querySelector('.hb-sub').textContent = `${nDone}/${total} file`;
+  }
+  function finishHydrateBanner(){
+    const el = document.getElementById('hydrateBanner');
+    if (!el) return;
+    el.classList.add('hb-done');
+    el.querySelector('.hb-text b').textContent = 'Sinkronisasi selesai';
+    setTimeout(()=>{ el.remove(); }, 1200);
+  }
+
+  // CSS ringan untuk banner
+  (function injectHbCss(){
+    if (document.getElementById('hydrateBannerCSS')) return;
+    const s = document.createElement('style');
+    s.id = 'hydrateBannerCSS';
+    s.textContent = `
+      #hydrateBanner{margin-bottom:12px}
+      #hydrateBanner .hb-wrap{
+        display:flex; gap:10px; align-items:center;
+        border:1px solid var(--border,#dcdcdc); background:var(--bg,#fff);
+        padding:10px; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,.05)
+      }
+      .dark-mode #hydrateBanner .hb-wrap{ background:#1e1f22; border-color:#2e2f34; }
+      #hydrateBanner .hb-spinner{
+        width:18px;height:18px;border:3px solid #ccc;border-top-color:#1976d2;border-radius:50%;
+        animation:hbspin 1s linear infinite; flex:0 0 auto;
+      }
+      #hydrateBanner.hb-done .hb-spinner{ border-top-color:#4caf50; animation:none; }
+      @keyframes hbspin{to{transform:rotate(360deg)}}
+      #hydrateBanner .hb-text{flex:1 1 auto; min-width:120px}
+      #hydrateBanner .hb-text b{display:block; font-size:14px; line-height:1.2}
+      #hydrateBanner .hb-sub{font-size:12px; opacity:.8}
+      #hydrateBanner .hb-bar{
+        flex:1 1 200px; height:6px; background:rgba(0,0,0,.08); border-radius:999px; overflow:hidden;
+      }
+      .dark-mode #hydrateBanner .hb-bar{ background:rgba(255,255,255,.12); }
+      #hydrateBanner .hb-bar-fill{
+        height:100%; width:0%; background:#1976d2; transition:width .25s ease;
+      }
+      #hydrateBanner.hb-done .hb-bar-fill{ background:#4caf50; width:100% }
+      #hydrateBanner #hbClose{
+        border:none; background:transparent; cursor:pointer; font-size:14px; opacity:.7;
+      }
+      #hydrateBanner #hbClose:hover{ opacity:1 }
+    `;
+    document.head.appendChild(s);
+  })();
+
+  async function getToken(){
+    try {
+      if (typeof DriveSync?.getAccessToken === 'function') return await DriveSync.getAccessToken();
+      if (DriveSync?.token?.access_token) return DriveSync.token.access_token;
+    } catch {}
+    return null;
+  }
+  async function ensureDriveReady(){
+    try { await (DriveSync?.tryResume?.() || Promise.resolve(false)); } catch {}
+    return (DriveSync?.isLogged?.() || false);
+  }
+  async function saveBlobToIndexedDB(hash, name, blob, meta=null){
+    const db = await openDb();
+    return new Promise((resolve) => {
+      if (!db.objectStoreNames.contains(STORE_BLOBS)) {
+        // kalau store belum ada (mustinya sudah ada dari onupgradeneeded)
+        try { const tx0 = db.transaction([], 'readonly'); tx0.oncomplete = ()=>{}; } catch {}
+      }
+      const tx = db.transaction([STORE_BLOBS], 'readwrite');
+      const store = tx.objectStore(STORE_BLOBS);
+      const rec = { contentHash: hash || null, name: name || '(tanpa-nama)', blob, type: 'application/pdf', size: blob.size, meta, savedAt: Date.now() };
+      store.put(rec);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+    });
+  }
+  async function haveBlobMap(){
+    const all = await getAllPdfBuffersFromIndexedDB([]);
+    const m = { byHash:new Set(), byName:new Set() };
+    for (const it of all){
+      if (it.contentHash) m.byHash.add(it.contentHash);
+      if (it.name) m.byName.add(it.name);
+    }
+    return m;
+  }
+  function esc(str=''){ return String(str).replace(/(['\\])/g,'\\$1'); }
+  async function driveSearch(q){
+    const ok = await ensureDriveReady();
+    if (!ok) return [];
+    const token = await getToken(); if (!token) return [];
+    const url = new URL('https://www.googleapis.com/drive/v3/files');
+    url.searchParams.set('q', q);
+    url.searchParams.set('fields', 'files(id,name,mimeType,modifiedTime,size,appProperties)');
+    url.searchParams.set('spaces','drive');
+    url.searchParams.set('pageSize','10');
+    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return [];
+    const json = await res.json().catch(()=>({files:[]}));
+    return json.files || [];
+  }
+  async function driveFindByHash(hash){
+    if (!hash) return [];
+    const q = `mimeType='application/pdf' and trashed=false and appProperties has { key='contentHash' and value='${esc(hash)}' }`;
+    return await driveSearch(q);
+  }
+  async function driveFindByName(name){
+    if (!name) return [];
+    const q = `mimeType='application/pdf' and trashed=false and name='${esc(name)}'`;
+    return await driveSearch(q);
+  }
+  async function driveDownloadBlob(fileId){
+    const token = await getToken(); if (!token) return null;
+    const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return null;
+    const buf = await res.arrayBuffer();
+    return new Blob([buf], { type:'application/pdf' });
+  }
+
+  async function hydrateMissingBlobsFromDrive(){
+    const list = getPdfHistori();
+    if (!Array.isArray(list) || !list.length) return;
+
+    // cache map “yang sudah ada” biar nggak panggil IndexedDB berkali-kali
+    const have = await haveBlobMap();
+
+    const targets = [];
+    for (const it of list){
+      const hash = it.contentHash || it.fileHash || null;
+      const name = it.fileName || null;
+      if (hash ? have.byHash.has(hash) : (name && have.byName.has(name))) continue;
+      targets.push({ hash, name });
+    }
+    if (!targets.length) return;
+
+    // tampilkan banner progres
+    updateHydrateBanner(0, targets.length);
+
+    let done = 0;
+    for (const t of targets){
+      try{
+        let candidates = [];
+        if (t.hash) candidates = await driveFindByHash(t.hash);
+        if (!candidates.length && t.name) candidates = await driveFindByName(t.name);
+        if (candidates.length){
+          candidates.sort((a,b)=> new Date(b.modifiedTime||0) - new Date(a.modifiedTime||0));
+          const picked = candidates[0];
+          const blob = await driveDownloadBlob(picked.id);
+          if (blob){
+            await saveBlobToIndexedDB(t.hash || null, picked.name || t.name || '(tanpa-nama)', blob, null);
+            if (t.hash) have.byHash.add(t.hash);
+            if (picked.name) have.byName.add(picked.name);
+          }
+        }
+      } catch (e){
+        console.warn('hydrate: gagal tarik dari Drive', t, e);
+      } finally {
+        done += 1;
+        updateHydrateBanner(done, targets.length);
+      }
+    }
+    finishHydrateBanner();
+  }
+
+  // Hook: setelah render/pull cloud, coba hydrate diam-diam + progres
+  document.addEventListener('DOMContentLoaded', async ()=>{
+    try { await hydrateMissingBlobsFromDrive(); } catch {}
+  });
+
+  const _pull = window.FSTSync?.pullCloudToLocal;
+  if (typeof _pull === 'function') {
+    window.FSTSync.pullCloudToLocal = async function(){
+      const r = await _pull.apply(this, arguments);
+      try { await hydrateMissingBlobsFromDrive(); } catch {}
+      return r;
+    };
+  }
+})();
 
 /********************
  *   DEBUG HELPER   *

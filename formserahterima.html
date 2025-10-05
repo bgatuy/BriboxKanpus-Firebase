@@ -36,11 +36,11 @@
 
     <main class="main">
       <header class="dashboard-header">
-        <button class="sidebar-toggle-btn" onclick="toggleSidebar()">☰</button>
+        <button class="sidebar-toggle-btn" type="button" aria-label="Toggle sidebar" onclick="toggleSidebar()">☰</button>
         <h1><span class="material-icons" aria-hidden="true">receipt_long</span> Form Serah Terima</h1>
         <div class="header-actions">
           <button id="btnAuth" class="btn" type="button">Login Google</button>
-          <button id="toggleModeBtn" onclick="toggleDarkMode()" aria-pressed="false" aria-label="Toggle dark mode">🌙</button>
+          <button id="toggleModeBtn" type="button" onclick="toggleDarkMode()" aria-pressed="false" aria-label="Toggle dark mode">🌙</button>
         </div>
       </header>
 
@@ -74,10 +74,10 @@
         </select>
 
         <div class="controls-right btn-row">
-          <button id="btnGenCombo" class="primary">Generate FST + PDF</button>
-          <button id="btnGenCMOnly">Generate FST</button>
-          <button id="btnGenFilesOnly">Generate File PDF</button>
-          <button id="btnReset" class="danger">Reset Histori</button>
+          <button id="btnGenCombo" class="primary" type="button">Generate FST + PDF</button>
+          <button id="btnGenCMOnly" type="button">Generate FST</button>
+          <button id="btnGenFilesOnly" type="button">Generate File PDF</button>
+          <button id="btnReset" class="danger" type="button">Reset Histori</button>
         </div>
       </div>
 
@@ -85,7 +85,7 @@
         <table class="table">
           <thead>
             <tr>
-              <th style="text-align:center;"><input id="pickAll" type="checkbox" title="Pilih semua"></th>
+              <th style="text-align:center;"><input id="pickAll" type="checkbox" title="Pilih semua" aria-label="Pilih semua"></th>
               <th style="text-align:center;">NO.</th>
               <th style="text-align:center;">TANGGAL SERAH TERIMA</th>
               <th style="text-align:center;">NAMA UKER</th>
@@ -94,7 +94,7 @@
               <th style="text-align:center;">AKSI</th>
             </tr>
           </thead>
-          <tbody id="historiBody">
+          <tbody id="historiBody" aria-live="polite">
             <tr><td colspan="7" style="text-align:center;">Belum ada data histori. Unggah PDF di Trackmate atau AppSheet.</td></tr>
           </tbody>
         </table>
@@ -128,11 +128,18 @@
   <!-- Prefs -->
   <script>
     if(localStorage.getItem('darkMode')==='true'){document.body.classList.add('dark-mode');}
-    document.addEventListener('DOMContentLoaded',()=>{const b=document.getElementById('toggleModeBtn');if(b){const d=document.body.classList.contains('dark-mode');b.textContent=d?'☀️':'🌙';b.setAttribute('aria-pressed',String(d));}});
+    document.addEventListener('DOMContentLoaded',()=>{
+      const b=document.getElementById('toggleModeBtn');
+      if(b){const d=document.body.classList.contains('dark-mode');b.textContent=d?'☀️':'🌙';b.setAttribute('aria-pressed',String(d));}
+      // Default-kan tanggal hari ini bila kosong
+      const dt=document.getElementById('tglSerahTerima');
+      if(dt && !dt.value){ const z=new Date(); const pad=n=>String(n).padStart(2,'0'); dt.value=`${z.getFullYear()}-${pad(z.getMonth()+1)}-${pad(z.getDate())}`; }
+    });
     function toggleDarkMode(){const d=document.body.classList.toggle('dark-mode');localStorage.setItem('darkMode',d);const b=document.getElementById('toggleModeBtn');if(b){b.textContent=d?'☀️':'🌙';b.setAttribute('aria-pressed',String(d));}}
     function toggleSidebar(){document.querySelector('.sidebar')?.classList.toggle('hidden');}
   </script>
 
+  <script src="user-scope.js"></script>
   <!-- Auth -->
   <script defer src="auth.js"></script>
   <script>document.addEventListener('DOMContentLoaded',()=>Auth.enforce());</script>
@@ -140,7 +147,6 @@
   <!-- Drive core -->
   <script src="drive-sync.js?v=pure-oauth-2"></script>
   <script src="drive-queue.js" defer></script>
-  
 
   <!-- Connect bar (auto-resume + broadcast) -->
   <script>
@@ -179,7 +185,6 @@
       const h=await crypto.subtle.digest('SHA-256',ab);
       return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join('');
     }
-
     /**
      * Simpan PDF hasil generate ke Drive secara diam-diam:
      * - Root "Bribox Kanpus"

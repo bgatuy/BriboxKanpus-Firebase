@@ -40,6 +40,9 @@ document.addEventListener('DOMContentLoaded', function () {
   else if (title.includes('appsheet'))  body.setAttribute('data-page', 'appsheet');
   else if (title.includes('serah'))     body.setAttribute('data-page', 'serah');
   else if (title.includes('merge'))     body.setAttribute('data-page', 'merge');
+
+  // init Drive queue di halaman ini juga (aman kalau dipanggil berkali-kali)
+  try { window.DriveQueue?.init?.(); } catch {}
 });
 
 /* ========= Query DOM ========= */
@@ -134,9 +137,11 @@ async function autoCalibratePdf(buffer){
 }
 
 /* ========= IndexedDB ========= */
+// Samakan schema dengan Trackmate: ada store blob by contentHash
 const DB_NAME = "PdfStorage";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = "pdfs";
+const STORE_BLOBS = "pdfBlobs";
 let db;
 
 function openDb() {
@@ -147,13 +152,16 @@ function openDb() {
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: "id", autoIncrement: true });
       }
+      if (!db.objectStoreNames.contains(STORE_BLOBS)) {
+        db.createObjectStore(STORE_BLOBS, { keyPath: "contentHash" });
+      }
     };
     req.onsuccess = (e) => { db = e.target.result; resolve(db); };
-    req.onerror   = (e) => reject(e.target.errorCode);
+    req.onerror   = (e) => reject(e.target.error || e.target.errorCode);
   });
 }
 
-// UPDATED: tetap kompatibel; param ke-3 opsional utk menitip contentHash
+// Simpan record histori + blob terindeks contentHash (dedupe lintas modul)
 async function savePdfToIndexedDB(fileOrBlob, nameOverride, extra = {}) {
   const blob = fileOrBlob instanceof Blob ? fileOrBlob : null;
   if (!blob) throw new Error('savePdfToIndexedDB: harus File/Blob');
@@ -161,7 +169,7 @@ async function savePdfToIndexedDB(fileOrBlob, nameOverride, extra = {}) {
   if (blob.type !== 'application/pdf') throw new Error('Type bukan PDF');
   if (!blob.size) throw new Error('PDF kosong');
 
-  // === tambahkan ini ===
+  // meta dari autoCalibrate (optional)
   let meta = null;
   try {
     const buf = await blob.arrayBuffer();
@@ -170,28 +178,37 @@ async function savePdfToIndexedDB(fileOrBlob, nameOverride, extra = {}) {
     console.warn('autoCalibrate gagal:', e);
   }
 
+  const contentHash = extra.contentHash || null;
   const database = await openDb();
+
   await new Promise((resolve, reject) => {
-    const tx = database.transaction([STORE_NAME], 'readwrite');
+    const tx = database.transaction([STORE_NAME, STORE_BLOBS], 'readwrite');
     tx.oncomplete = resolve;
     tx.onerror = () => reject(tx.error || new Error('Tx error'));
+    // tabel histori (auto increment)
     tx.objectStore(STORE_NAME).add({
       name,
       dateAdded: new Date().toISOString(),
-      data: blob,
-      contentHash: extra.contentHash || null,
-      meta                                          // ← disimpan di sini
+      data: blob,                // keep for backward-compat
+      contentHash: contentHash,  // identitas isi
+      meta
     });
+    // tabel blob by hash (upsert)
+    const putBlob = { contentHash, name, size: blob.size, type: blob.type, blob, meta, savedAt: Date.now() };
+    tx.objectStore(STORE_BLOBS).put(putBlob);
   });
-  console.log(`✅ Tersimpan: ${name} (${(blob.size/1024).toFixed(1)} KB), meta:`, meta);
-}
 
+  console.log(`✅ Tersimpan: ${name} (${(blob.size/1024).toFixed(1)} KB), hash=${contentHash}, meta:`, meta);
+  return { contentHash, meta };
+}
 
 /* ========= State ========= */
 let lokasiTerpilih = "", unitKerja = "-", kantor = "-", tanggal = "-", problem = "-",
     berangkat = "-", tiba = "-", mulai = "-", selesai = "-", progress = "-",
     jenis = "-", sn = "-", merk = "-", tipe = "-", pic = "-", status = "-",
-    currentFile = null, currentTanggalRaw = "-";
+    currentTanggalRaw = "-";
+// Catatan: file aktif pakai window.currentFile agar konsisten antar modul
+Object.defineProperty(window, 'currentFile', { writable: true, configurable: true, value: window.currentFile || null });
 
 /* ========= Helpers ========= */
 function formatTanggalIndo(tanggalStr) {
@@ -247,9 +264,9 @@ lokasiSelect?.addEventListener("change", () => {
 
 /* ========= File Input ========= */
 pdfInput?.addEventListener("change", async () => {
-  const file = pdfInput.files[0];
+  const file = pdfInput.files?.[0];
   if (!file) return;
-  currentFile = file;
+  window.currentFile = file;
 
   console.log('🧪 File input:', { name: file.name, type: file.type, size: file.size });
   if (file.type !== 'application/pdf' || !file.size) { alert('File bukan PDF valid.'); return; }
@@ -306,19 +323,28 @@ pdfInput?.addEventListener("change", async () => {
 
 /* ========= Copy & Save ========= */
 copyBtn?.addEventListener("click", async () => {
-  const textarea = document.createElement("textarea");
-  textarea.value = output.textContent;
-  document.body.appendChild(textarea);
-  textarea.select();
-  document.execCommand("copy");
-  document.body.removeChild(textarea);
-  copyBtn.textContent = "✔ Copied!";
+  // Copy ke clipboard (prefer async API)
+  const text = output.textContent || '';
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      document.execCommand("copy"); ta.remove();
+    }
+    copyBtn.textContent = "✔ Copied!";
+  } catch {
+    copyBtn.textContent = "⚠ Copy gagal";
+  }
   setTimeout(() => (copyBtn.textContent = "Copy"), 1500);
 
-  if (!currentFile || !currentTanggalRaw) return;
+  // Simpan histori + blob + antre/upload Drive
+  const file = window.currentFile;
+  if (!file || !currentTanggalRaw) return;
 
   // === HASH BARU ===
-  const contentHash = await sha256File(currentFile);
+  const contentHash = await sha256File(file);
 
   const namaUkerBersih = stripLeadingColon(unitKerja) || '-';
   const histori = JSON.parse(localStorage.getItem("pdfHistori")) || [];
@@ -330,16 +356,29 @@ copyBtn?.addEventListener("click", async () => {
     const rec = {
       namaUker: namaUkerBersih,
       tanggalPekerjaan: currentTanggalRaw,
-      fileName: currentFile.name,
+      fileName: file.name,
       contentHash,                          // identitas isi
-      size: currentFile.size,
-      uploadedAt: new Date().toISOString()
+      size: file.size,
+      uploadedAt: new Date().toISOString(),
+      module: 'appsheet'
     };
     histori.push(rec);
     localStorage.setItem("pdfHistori", JSON.stringify(histori));
 
-    await savePdfToIndexedDB(currentFile, undefined, { contentHash }); // simpan blob + hash
-    showToast(`✔ berhasil disimpan ke histori.`);
+    await savePdfToIndexedDB(file, undefined, { contentHash }); // simpan blob + hash
+
+    // === Drive: upload langsung kalau siap, kalau tidak antri
+    try {
+      const res = await (window.DriveQueue?.enqueueOrUpload?.(file, contentHash));
+      if (res?.uploaded) {
+        showToast('✔ tersimpan & disinkron ke Drive.');
+      } else {
+        showToast('⏳ tersimpan & ditaruh di antrean Drive.');
+      }
+    } catch (e) {
+      console.warn('enqueue/upload drive gagal:', e);
+      showToast('✔ tersimpan lokal. Hubungkan Drive untuk sinkron.');
+    }
   } else {
     showToast(`ℹ sudah ada di histori.`);
   }

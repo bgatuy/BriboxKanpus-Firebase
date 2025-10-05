@@ -13,6 +13,13 @@
   <!-- CONFIG -->
   <script src="../config.local.js"></script>
   <script>if(!window.__CONFIG){document.write('<script src="../config.sample.js"><\/script>')}</script>
+
+  <!-- user scope (per-akun) WAJIB AWAL -->
+  <script src="../user-scope.js"></script>
+  <script>
+    // mirror kunci lama agar modul lama tetap kompatibel
+    AccountNS.setMirrorKeys(['monthlyForm','monthlyData','pdfHistori']);
+  </script>
 </head>
 <body data-page="monthly">
   <div class="dashboard">
@@ -145,17 +152,20 @@
   </script>
 
   <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+  <!-- Auth + Guard -->
   <script defer src="../auth.js"></script>
   <script>document.addEventListener('DOMContentLoaded',()=>Auth.enforce());</script>
-
   <!-- Drive core (wajib untuk sync lintas device) -->
   <script src="../drive-sync.js" defer></script>
-  
 
-  <!-- Monthly Cloud Mirror (Drive JSON) -->
+  <!-- Monthly Cloud Mirror (Drive JSON, PER-AKUN) -->
   <script>
   (function(){
-    const FILE = 'Monthly-Data.json';
+    // === per-AKUN: nama file ikut UID aktif ===
+    function fileName() {
+      var uid = (window.AccountNS && AccountNS.getUidOrAnon) ? AccountNS.getUidOrAnon() : 'anon';
+      return `.monthly_data__${uid}.json`;
+    }
 
     function norm(x){
       const id = x.id || [x.month,x.date,x.teknisi,x.createdAt].filter(Boolean).join('|');
@@ -179,7 +189,7 @@
           const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
           if(!ok && !window.DriveSync?.isLogged?.()) return;
           const local = await getLocal();
-          await window.DriveSync.putJson(FILE, local||[]);
+          await window.DriveSync.putJson(fileName(), local||[]);
         }catch{}
       }, 900);
     }
@@ -189,7 +199,7 @@
         try{
           const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
           if(!ok && !window.DriveSync?.isLogged?.()) return;
-          const cloud = await window.DriveSync.getJson(FILE);
+          const cloud = await window.DriveSync.getJson(fileName());
           if(!Array.isArray(cloud?.data)) return;
           const merged = merge((await getLocal())||[], cloud.data);
           await setLocal(merged);
