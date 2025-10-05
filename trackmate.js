@@ -531,18 +531,29 @@ Status : ${status}`;
 }
 
 /* ========= Storage helpers (robust) ========= */
-function readHistoriSafe() {
+function readHistoriSafe(){
+  if (window.AccountStore?.loadHistori) {
+    // sinkron (halaman butuh array langsung): pakai cache localStorage scoped
+    try {
+      const key = window.AccountStore.nsKey('pdfHistori');
+      const raw = localStorage.getItem(key);
+      if (raw) return JSON.parse(raw);
+    } catch {}
+  }
   try {
     const raw = localStorage.getItem('pdfHistori') ?? '[]';
     const arr = JSON.parse(raw);
     return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
-function writeHistori(arr) {
+function writeHistori(arr){
+  if (window.AccountStore?.saveHistori) { window.AccountStore.saveHistori(arr); return; }
   localStorage.setItem('pdfHistori', JSON.stringify(Array.isArray(arr) ? arr : []));
 }
+
+// Optional: saat DOM siap, trigger pre-load dari Drive supaya cache scoped keisi
+document.addEventListener('DOMContentLoaded', ()=>{ try{ window.AccountStore?.loadHistori?.(); }catch{} });
+
 /* Duplikat kalau:
    - hash sama (prioritas), atau
    - fallback: nama & size sama (untuk entri lama tanpa hash) */

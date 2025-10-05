@@ -69,8 +69,21 @@ document.addEventListener('DOMContentLoaded', function () {
 const stripLeadingColon = (s) => (s || '').replace(/^\s*:+\s*/, '');
 function toNumDateDMY(s){const m=(s||'').match(/(\d{2})\/(\d{2})\/(\d{4})/); if(!m) return 0; const ts=Date.parse(`${m[3]}-${m[2]}-${m[1]}`); return Number.isNaN(ts)?0:ts;}
 function formatTanggalSerahForPdf(val){ if(!val||!/^\d{4}-\d{2}-\d{2}$/.test(val)) return '-'; const [y,m,d]=val.split('-'); return `${d}/${m}/${y}`;}
-function getPdfHistori(){ const arr=JSON.parse(localStorage.getItem('pdfHistori')||'[]'); return Array.isArray(arr)?arr:[];}
-function setPdfHistori(arr){ localStorage.setItem('pdfHistori', JSON.stringify(arr)); }
+// Ganti implementasi jadi:
+function getPdfHistori(){
+  if (window.AccountStore?.nsKey) {
+    try { const key = window.AccountStore.nsKey('pdfHistori'); return JSON.parse(localStorage.getItem(key)||'[]'); } catch { return []; }
+  }
+  try { return JSON.parse(localStorage.getItem('pdfHistori')||'[]'); } catch { return []; }
+}
+function setPdfHistori(arr){
+  if (window.AccountStore?.saveHistori) return window.AccountStore.saveHistori(arr);
+  localStorage.setItem('pdfHistori', JSON.stringify(arr||[]));
+  return arr;
+}
+// preload cache scoped
+document.addEventListener('DOMContentLoaded', ()=>{ try{ window.AccountStore?.loadHistori?.(); }catch{} });
+
 /** Optional toast (dipakai di tempat lain), FST tidak menambah toast baru */
 function showToast(message, duration = 2500) {
   const toast = document.createElement('div'); toast.className = 'toast'; toast.textContent = message;
