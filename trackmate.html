@@ -212,21 +212,64 @@
   <!-- Drive -->
   <script defer src="drive-sync.js"></script>
   <script defer src="drive-queue.js"></script>
-  <script>
-    const whenGIS=new Promise(r=>{if(window.google?.accounts?.oauth2)return r();const t=setInterval(()=>{if(window.google?.accounts?.oauth2){clearInterval(t);r();}},50);});
-    const whenGapi=new Promise(r=>{if(window.gapi?.client)return r();const t=setInterval(()=>{if(window.gapi?.client){clearInterval(t);r();}},50);});
-    document.addEventListener('DOMContentLoaded',async()=>{
-      const bar=document.getElementById('driveConnectBar');
-      try{ await Promise.all([whenGIS,whenGapi]); if(window.DriveSync && !DriveSync.isLogged()) await DriveSync.signInSilent(); }
-      catch(_){ /* ignore */ }
-      if (bar && (!window.DriveSync || !DriveSync.isLogged())) bar.style.display='';
-      document.getElementById('btnConnectDrive')?.addEventListener('click', async ()=>{
-        try{ await whenGIS; await whenGapi; await DriveSync.signIn(); bar?.remove(); }
-        catch(e){ alert('Gagal connect Drive.\n'+(e?.error_description||e?.message||'')); if(bar) bar.style.display=''; }
-      });
-      if (window.DriveQueue?.init) DriveQueue.init();
+  <!-- === Drive (force show bar dulu, baru coba silent) === -->
+<script>
+  // TUNGGU SDK
+  const whenGIS = new Promise(r => {
+    if (window.google?.accounts?.oauth2) return r();
+    const t = setInterval(() => { if (window.google?.accounts?.oauth2) { clearInterval(t); r(); } }, 50);
+    setTimeout(() => { clearInterval(t); r(); }, 7000); // fallback
+  });
+  const whenGapi = new Promise(r => {
+    if (window.gapi?.client) return r();
+    const t = setInterval(() => { if (window.gapi?.client) { clearInterval(t); r(); } }, 50);
+    setTimeout(() => { clearInterval(t); r(); }, 7000); // fallback
+  });
+
+  document.addEventListener('DOMContentLoaded', async () => {
+    const bar = document.getElementById('driveConnectBar');
+    const btn = document.getElementById('btnConnectDrive');
+
+    // 1) SELALU tampilin bar dulu (override semua CSS yg mungkin nyembunyiin)
+    if (bar) {
+      bar.removeAttribute('hidden');
+      bar.style.display = 'block';
+      bar.style.visibility = 'visible';
+    }
+
+    // 2) Coba silent connect setelah SDK siap
+    try {
+      await Promise.all([whenGIS, whenGapi]);
+      if (window.DriveSync && !DriveSync.isLogged()) {
+        await DriveSync.signInSilent();
+      }
+    } catch (_) { /* abaikan; user bisa klik tombol */ }
+
+    // 3) Kalau ternyata sudah connect → sembunyikan bar
+    if (bar && window.DriveSync?.isLogged?.()) {
+      bar.remove(); // atau: bar.style.display = 'none';
+    }
+
+    // 4) Tombol connect
+    btn?.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        await whenGIS; await whenGapi;
+        await DriveSync.signIn();         // munculin consent popup
+        bar?.remove();
+      } catch (e) {
+        alert('Gagal connect Drive.\n' + (e?.error_description || e?.message || ''));
+        if (bar) { bar.style.display = 'block'; bar.style.visibility = 'visible'; }
+      } finally {
+        btn.disabled = false;
+      }
     });
-  </script>
+
+    // 5) Init antrean upload
+    window.DriveQueue?.init?.();
+  });
+</script>
+
 
   <!-- === App logic === -->
   <script src="trackmate.js"></script>
