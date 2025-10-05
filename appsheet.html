@@ -48,7 +48,23 @@
         <button class="sidebar-toggle-btn" onclick="toggleSidebar()">☰</button>
         <h1><span class="material-icons">description</span> AppSheet</h1>
         <button id="toggleModeBtn" onclick="toggleDarkMode()">🌙</button>
+        <div class="header-actions">
+          <button id="btnAuth" class="btn" type="button">Login Google</button>
+          <button id="toggleModeBtn" type="button" onclick="toggleDarkMode()" aria-pressed="false" aria-label="Toggle dark mode">🌙</button>
+        </div>
       </header>
+
+      <!-- Drive connect hint (muncul hanya jika silent connect gagal) -->
+      <div id="driveConnectBar" class="drive-connect-bar" style="display:none; margin-bottom:12px">
+        <div class="card" style="display:flex; gap:10px; align-items:center; padding:10px;">
+          <span class="material-icons" aria-hidden="true">cloud_off</span>
+          <div style="flex:1">
+            <b>Google Drive belum tersambung.</b>
+            <div style="font-size:12px;opacity:.8">Klik sekali untuk menyambungkan agar file tersimpan ke Drive.</div>
+          </div>
+          <button id="btnConnectDrive" type="button" class="primary">Connect Google Drive</button>
+        </div>
+      </div>
 
       <section class="card">
         <h3>Upload Form PDF Kalian Disini Lalu Pilih Lokasi Divisi!</h3>
@@ -182,7 +198,21 @@
   <!-- Drive -->
   <script defer src="drive-sync.js"></script>
   <script defer src="drive-queue.js"></script>
-  
+  <script>
+    const whenGIS=new Promise(r=>{if(window.google?.accounts?.oauth2)return r();const t=setInterval(()=>{if(window.google?.accounts?.oauth2){clearInterval(t);r();}},50);});
+    const whenGapi=new Promise(r=>{if(window.gapi?.client)return r();const t=setInterval(()=>{if(window.gapi?.client){clearInterval(t);r();}},50);});
+    document.addEventListener('DOMContentLoaded',async()=>{
+      const bar=document.getElementById('driveConnectBar');
+      try{ await Promise.all([whenGIS,whenGapi]); if(window.DriveSync && !DriveSync.isLogged()) await DriveSync.signInSilent(); }
+      catch(_){}
+      if (bar && (!window.DriveSync || !DriveSync.isLogged())) bar.style.display='';
+      document.getElementById('btnConnectDrive')?.addEventListener('click', async ()=>{
+        try{ await whenGIS; await whenGapi; await DriveSync.signIn(); bar?.remove(); }
+        catch(e){ alert('Gagal connect Drive.\n'+(e?.error_description||e?.message||'')); if(bar) bar.style.display=''; }
+      });
+      if (window.DriveQueue?.init) DriveQueue.init();
+    });
+  </script>
   <script src="appsheet.js"></script>
 </body>
 </html>
