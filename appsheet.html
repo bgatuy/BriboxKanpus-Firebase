@@ -196,7 +196,7 @@
   <script src="https://apis.google.com/js/api.js" async defer></script>
 
   <!-- Drive -->
-  <script defer src="drive-sync.js"></script>
+  <script src="./drive-sync.js?v=pure-oauth-1"></script>
   <script defer src="drive-queue.js"></script>
   <script>
     const whenGIS=new Promise(r=>{if(window.google?.accounts?.oauth2)return r();const t=setInterval(()=>{if(window.google?.accounts?.oauth2){clearInterval(t);r();}},50);});
