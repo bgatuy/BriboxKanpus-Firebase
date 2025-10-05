@@ -8,16 +8,10 @@
   <link rel="stylesheet" href="style.css" />
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
 
-    <!-- === CONFIG (tries local, fallback to sample) === -->
-    <script src="config.local.js"></script>
-    <script>if (!window.__CONFIG) document.write('<script src="config.sample.js"><\/script>');</script>
-    <!-- === Google SDKs === -->
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script src="https://apis.google.com/js/api.js" async defer></script>
-    <!-- === Drive helper === -->
-    <script src="drive-sync.js" defer></script>
-
-  </head>
+  <!-- === CONFIG (local dulu, fallback ke sample) === -->
+  <script src="config.local.js"></script>
+  <script>if (!window.__CONFIG) document.write('<script src="config.sample.js"><\/script>');</script>
+</head>
 <body data-page="trackmate">
   <div class="dashboard">
     <!-- Sidebar -->
@@ -172,6 +166,7 @@
     </main>
   </div>
 
+  <!-- Preference toggles -->
   <script>
     if (localStorage.getItem('darkMode') === 'true') {
       document.body.classList.add('dark-mode');
@@ -197,47 +192,66 @@
       document.querySelector('.sidebar')?.classList.toggle('hidden');
     }
   </script>
-  
+
+  <!-- PDF.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
   <script>
     if (window.pdfjsLib && (!pdfjsLib.GlobalWorkerOptions.workerSrc || pdfjsLib.GlobalWorkerOptions.workerSrc === '')) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc ='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';}
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+    }
   </script>
 
-  <!-- Auth + Guard -->
+  <!-- === Auth + Guard (app session) === -->
   <script defer src="auth.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => Auth.enforce());
   </script>
 
-  <!-- Google Identity + Drive (Trackmate pakai Drive) -->
+  <!-- === Google SDKs (muat SEKALI) === -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://apis.google.com/js/api.js" async defer></script>
+
+  <!-- === Drive helpers === -->
   <script defer src="drive-sync.js"></script>
   <script defer src="drive-queue.js"></script>
+
+  <!-- === Init Drive (silent connect nunggu SDK siap) === -->
   <script>
-    // Auto-connect Drive silently; show connect bar if first-time
+    const whenGIS = new Promise(res => {
+      if (window.google?.accounts?.oauth2) return res();
+      const t = setInterval(() => { if (window.google?.accounts?.oauth2) { clearInterval(t); res(); } }, 50);
+    });
+    const whenGapi = new Promise(res => {
+      if (window.gapi?.client) return res();
+      const t = setInterval(() => { if (window.gapi?.client) { clearInterval(t); res(); } }, 50);
+    });
+
     document.addEventListener('DOMContentLoaded', async () => {
       try {
+        await Promise.all([whenGIS, whenGapi]);
         if (window.DriveSync && !DriveSync.isLogged()) {
-          await DriveSync.signInSilent();
+          await DriveSync.signInSilent(); // auto-connect jika sudah pernah consent
         }
-      } catch {
-        const bar = document.getElementById('driveConnectBar');
-        if (bar) bar.style.display = '';
-      }
-      // Connect button (first-time consent)
+      } catch (_) { /* ignore */ }
+
+      const bar = document.getElementById('driveConnectBar');
+      if (bar && (!window.DriveSync || !DriveSync.isLogged())) bar.style.display = '';
+
       document.getElementById('btnConnectDrive')?.addEventListener('click', async () => {
-        try{
+        try {
+          await whenGIS; await whenGapi;
           await DriveSync.signIn();
           document.getElementById('driveConnectBar')?.remove();
-        }catch(e){ alert('Gagal connect Drive. Coba lagi.'); }
+        } catch (e) {
+          alert('Gagal connect Drive. Coba lagi.');
+        }
       });
-      // Queue init
-      if (window.DriveQueue) DriveQueue.init();
+
+      if (window.DriveQueue?.init) DriveQueue.init();
     });
   </script>
 
+  <!-- === App logic === -->
   <script src="trackmate.js"></script>
 </body>
 </html>

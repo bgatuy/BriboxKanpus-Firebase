@@ -20,20 +20,16 @@
     .err{color:#b91c1c;background:#fee2e2;border:1px solid #fecaca;padding:8px 10px;border-radius:8px;margin:10px 0;display:none}
   </style>
 
-  <!-- Google Identity Services -->
+  <!-- === CONFIG (local dulu, fallback ke sample) === -->
+  <script src="config.local.js"></script>
+  <script>if(!window.__CONFIG){document.write('<script src="config.sample.js"><\/script>')}</script>
+
+  <!-- === Google Identity (accounts.id) === -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <!-- === Auth (pakai accounts.id) === -->
   <script defer src="auth.js"></script>
-
-    <!-- === CONFIG (tries local, fallback to sample) === -->
-    <script src="config.local.js"></script>
-    <script>if (!window.__CONFIG) document.write('<script src="config.sample.js"><\/script>');</script>
-    <!-- === Google SDKs === -->
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script src="https://apis.google.com/js/api.js" async defer></script>
-    <!-- === Drive helper === -->
-    <script src="drive-sync.js" defer></script>
-
-  </head>
+</head>
 <body data-page="login">
   <div class="login-card" role="main">
     <div class="brand">
@@ -41,7 +37,6 @@
       <div style="font-weight:700">BRIBOX KANPUS</div>
     </div>
     <h4>Masuk dengan Akun Google</h4>
-    
 
     <div id="gbtn" style="display:flex;justify-content:center"></div>
     <div class="or"><span>atau</span></div>
@@ -51,64 +46,42 @@
     <div class="muted">Dengan masuk akun google, data akan tersimpan dan sync di device lain</div>
   </div>
 
-<script>
-  // ===== helpers =====
-  const basePath = () => location.pathname.replace(/[^/]*$/, '');
-  function normalizeNext(next) {
-    if (!next) return 'trackmate.html';
-    const n = String(next).replace(/^\//,'').trim();
-    return /(^|\/)index\.html$/i.test(n) ? 'trackmate.html' : n;
-  }
-  function nextUrl() {
-    const n = normalizeNext(new URLSearchParams(location.search).get('next'));
-    return basePath() + n;
-  }
-
-  // Jika sudah login & masih valid, langsung lempar ke next
-  (function(){
-    try{
-      const auth = window.Auth && window.Auth.get?.();
-      if (auth) location.replace(nextUrl());
-    }catch{}
-  })();
-
-  // Inisialisasi tombol Google setelah GIS siap
-  window.addEventListener('load', function initGSI(){
-    if(!window.google || !google.accounts || !google.accounts.id) return;
-    const CLIENT_ID = (window.Auth && Auth.GOOGLE_CLIENT_ID) || "PASTE_YOUR_CLIENT_ID.apps.googleusercontent.com"; // TODO: ganti
-    google.accounts.id.initialize({
-      client_id: CLIENT_ID,
-      callback: async (resp) => {
-        try{
-          // ⬇️ cukup serahkan ke auth.js; dia yang akan redirect ke ?next
-          await Auth.handleGoogleCredential(resp.credential);
-        }catch(e){
-          const el=document.getElementById('err');
-          el.style.display='block'; 
-          el.textContent = e?.message || 'Login gagal.';
-        }
-      },
-      auto_select: false,
-      cancel_on_tap_outside: true
-    });
-    google.accounts.id.renderButton(
-      document.getElementById('gbtn'),
-      { theme:'filled_blue', size:'large', shape:'pill', width:320 }
-    );
-  });
-
-  // DEV fallback (tanpa Google) — klik 1x langsung masuk
-  document.getElementById('devLogin').addEventListener('click', async () => {
-    try{
-      // ⬇️ biarkan auth.js yang redirect sesuai ?next
-      await Auth.devLogin();
-    }catch(e){
-      const el=document.getElementById('err');
-      el.style.display='block'; 
-      el.textContent = e?.message || 'Login gagal.';
+  <script>
+    // ===== helpers =====
+    const basePath = () => location.pathname.replace(/[^/]*$/, '');
+    function normalizeNext(next){
+      if(!next) return 'trackmate.html';
+      const n=String(next).replace(/^\//,'').trim();
+      return /(^|\/)index\.html$/i.test(n) ? 'trackmate.html' : n;
     }
-  });
-</script>
+    function nextUrl(){
+      const n = normalizeNext(new URLSearchParams(location.search).get('next'));
+      return basePath() + n;
+    }
 
+    // Jika sudah login & masih valid, langsung lempar ke next
+    (function(){
+      try{
+        const auth = window.Auth && window.Auth.get?.();
+        if (auth) location.replace(nextUrl());
+      }catch{}
+    })();
+
+    // Render tombol Google via Auth.mountGoogleButton (pakai CLIENT_ID dari config.local.js)
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.Auth?.mountGoogleButton) Auth.mountGoogleButton('#gbtn');
+    });
+
+    // DEV fallback (tanpa Google)
+    document.getElementById('devLogin').addEventListener('click', async () => {
+      try{
+        await Auth.devLogin();  // auth.js yang urus redirect ?next
+      }catch(e){
+        const el=document.getElementById('err');
+        el.style.display='block';
+        el.textContent = e?.message || 'Login gagal.';
+      }
+    });
+  </script>
 </body>
 </html>
