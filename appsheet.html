@@ -145,6 +145,7 @@
         </div>
 
         <pre id="output" class="output-preview">Text akan muncul di sini...</pre>
+        <pre id="uploadStatus" class="output-status" aria-live="polite"></pre>
         <button id="copyBtn" class="primary" type="button">Copy</button>
       </section>
     </main>
@@ -160,8 +161,9 @@
   <!-- Prefs -->
   <script>
     if(localStorage.getItem('darkMode')==='true'){document.body.classList.add('dark-mode');}
-    function toggleDarkMode(){const d=document.body.classList.toggle('dark-mode');localStorage.setItem('darkMode',d);document.getElementById('toggleModeBtn').textContent=d?'☀️':'🌙';}
-    function toggleSidebar(){document.querySelector('.sidebar').classList.toggle('hidden');}
+    document.addEventListener('DOMContentLoaded',()=>{const b=document.getElementById('toggleModeBtn');if(b){const d=document.body.classList.contains('dark-mode');b.textContent=d?'☀️':'🌙';b.setAttribute('aria-pressed',String(d));}});
+    function toggleDarkMode(){const d=document.body.classList.toggle('dark-mode');localStorage.setItem('darkMode',d);const b=document.getElementById('toggleModeBtn');if(b){b.textContent=d?'☀️':'🌙';b.setAttribute('aria-pressed',String(d));}}
+    function toggleSidebar(){document.querySelector('.sidebar')?.classList.toggle('hidden');}
   </script>
 
   <!-- Auth -->
@@ -172,68 +174,62 @@
   <script src="drive-sync.js?v=pure-oauth-2"></script>
   <script src="drive-queue.js" defer></script>
 
+  <!-- Banner connect: auto-resume + broadcast sinkron antar halaman -->
   <script>
-document.addEventListener('DOMContentLoaded', async () => {
-  const bar = document.getElementById('driveConnectBar');
-  const btn = document.getElementById('btnConnectDrive');
+  document.addEventListener('DOMContentLoaded', async () => {
+    const bar = document.getElementById('driveConnectBar');
+    const btn = document.getElementById('btnConnectDrive');
 
-  // coba resume otomatis
-  const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
-  if (ok) { bar?.remove(); } else if (bar) { bar.style.display = 'block'; }
+    // 1) coba resume token
+    const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+    if (ok) { bar?.remove(); } else if (bar) { bar.style.display = 'block'; }
 
-  btn?.addEventListener('click', async () => {
-    btn.disabled = true;
-    try { await DriveSync.signIn(); bar?.remove(); }
-    catch (e) { alert('Gagal connect Drive.\n' + (e?.message || e)); bar && (bar.style.display = 'block'); }
-    finally { btn.disabled = false; }
-  });
-});
-</script>
-
-
-  <!-- Connect bar wiring -->
-  <script>
-    document.addEventListener('DOMContentLoaded',()=>{
-      const bar=document.getElementById('driveConnectBar');
-      const btn=document.getElementById('btnConnectDrive');
-      if(bar) bar.style.display='block';
-      btn?.addEventListener('click',async()=>{
-        btn.disabled=true;
-        try{ await DriveSync.signIn(); bar?.remove(); }
-        catch(e){ alert('Gagal connect Drive.\n'+(e?.message||e)); if(bar) bar.style.display='block';}
-        finally{ btn.disabled=false; }
-      });
+    // 2) dengarkan broadcast dari halaman lain (tanpa refresh)
+    const bc = ('BroadcastChannel' in window) ? new BroadcastChannel('bribox-drive') : null;
+    bc?.addEventListener('message', (ev) => {
+      if (ev.data?.type !== 'drive-auth') return;
+      if (ev.data.status === 'in')  bar?.remove();
+      if (ev.data.status === 'out') { if (bar) bar.style.display = 'block'; }
     });
+
+    // 3) tombol connect
+    btn?.addEventListener('click', async () => {
+      btn.disabled = true;
+      try { await DriveSync.signIn(); bar?.remove(); }
+      catch (e) { alert('Gagal connect Drive.\n' + (e?.message || e)); bar && (bar.style.display = 'block'); }
+      finally { btn.disabled = false; }
+    });
+  });
   </script>
 
-  <!-- Upload handler (sama seperti Trackmate) -->
+  <!-- Upload handler (upload saat pilih file, status di #uploadStatus) -->
   <script>
-    document.addEventListener('DOMContentLoaded',()=>{
-      const pdfInput=document.getElementById('pdfFile');
-      const lokasiSel=document.getElementById('inputLokasi');
-      const output=document.getElementById('output');
+    document.addEventListener('DOMContentLoaded',()=> {
+      const pdfInput   = document.getElementById('pdfFile');
+      const statusEl   = document.getElementById('uploadStatus');
 
-      async function sha256Hex(ab){const h=await crypto.subtle.digest('SHA-256',ab);return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join('');}
-
-      async function maybeUpload(){
-        const file=pdfInput?.files?.[0];
-        const lokasi=(lokasiSel?.value||'').trim();
-        if(!file||!lokasi) return;
-        if(!DriveSync?.isLogged?.()){alert('Sambungkan Google Drive dulu.');return;}
-
-        output.textContent='Menghitung hash & menyiapkan upload...';
-        const hash=await sha256Hex(await file.arrayBuffer());
+      async function uploadSelectedFile(){
+        const file = pdfInput?.files?.[0];
+        if (!file) return;
+        if (!window.DriveSync?.isLogged?.()){
+          alert('Sambungkan Google Drive dulu.');
+          return;
+        }
+        statusEl.textContent = 'Mengupload ke Drive...';
         try{
-          const ex=await DriveSync.findByHashPrefix(hash,lokasi);
-          let meta;
-          if(ex){meta={id:ex.id,name:ex.name};output.textContent='File sudah ada, tidak diupload ulang.';}
-          else{output.textContent='Mengupload ke Drive...';meta=await DriveSync.uploadPdf(file,hash,lokasi);output.textContent='Upload selesai.';}
-          const url=`https://drive.google.com/file/d/${meta.id}/view`;
-          output.textContent+=`\nNama: ${meta.name}\nLink: ${url}`;
-        }catch(e){output.textContent='Gagal upload: '+(e?.message||e);console.error(e);}
+          // Simpan ke ROOT "Bribox Kanpus" dengan NAMA FILE ASLI (tanpa hash, tanpa subfolder)
+          const meta = await DriveSync.uploadPdf(file, null, null, { simpleName: true });
+          const url  = `https://drive.google.com/file/d/${meta.id}/view`;
+          statusEl.textContent = `Upload selesai.\nNama: ${meta.name}\nLink: ${url}`;
+        }catch(e){
+          statusEl.textContent = 'Gagal upload: ' + (e?.message || e);
+          console.error('[upload error]', e);
+        }
       }
-      pdfInput?.addEventListener('change',maybeUpload);
-      lokasiSel?.addEventListener('change',maybeUpload);
+
+      // upload langsung setelah pilih file
+      pdfInput?.addEventListener('change', uploadSelectedFile);
+      // NOTE: pilihan lokasi tidak memicu upload lagi — biarkan hanya untuk template teks di trackmate.js
     });
   </script>
 

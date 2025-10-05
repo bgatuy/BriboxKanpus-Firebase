@@ -15,10 +15,10 @@
   const ROOT_FOLDER_NAME = 'Bribox Kanpus';
 
   // ===== STATE =====
-  let ACCESS_TOKEN = null;
-  let rootFolderId = null;
-  const subfolders = new Map();
-  let cachedProfile = null;
+  let ACCESS_TOKEN   = null;
+  let rootFolderId   = null;
+  const subfolders   = new Map();
+  let cachedProfile  = null;
 
   // ===== Persist token per-tab =====
   const STORE_KEY = 'GDRV_AT';
@@ -39,15 +39,14 @@
       return t;
     } catch(_) { return null; }
   }
-  async function tryResume() {
-    const t = loadTokenIfValid();
-    if (!t) return false;
-    ACCESS_TOKEN = t;
-    try { await afterLogin(); return true; }
-    catch { ACCESS_TOKEN = null; return false; }
+
+  // ===== Cross-page sync (tanpa refresh) =====
+  const bc = ('BroadcastChannel' in window) ? new BroadcastChannel('bribox-drive') : null;
+  function broadcast(status) {
+    try { bc && bc.postMessage({ type: 'drive-auth', status }); } catch(_) {}
   }
 
-  // ===== UI helpers =====
+  // ===== UI helpers (opsional) =====
   const $ = s => document.querySelector(s);
   function setAuthUI(logged, profile){
     const bar  = $('#driveConnectBar');
@@ -84,19 +83,20 @@
   }
 
   async function signIn(){
-    // 1) Flow "redirect penuh" — oauth-return sudah menyimpan GDRV_AT & GDRV_EXP.
+    // 1) Flow redirect penuh (oauth-return sudah menyimpan token)
     const pending = sessionStorage.getItem('GDRV_AT');
     if (pending) {
       sessionStorage.removeItem('GDRV_AT');
       ACCESS_TOKEN = pending;
       await afterLogin();
+      broadcast('in');
       return;
     }
     // 2) Popup flow
     return new Promise((resolve, reject) => {
       const url = buildAuthUrl(location.href);
       const pop = openCenteredPopup(url, 'Google Login');
-      if (!pop) { // popup diblok → pakai redirect penuh
+      if (!pop) { // popup diblok → redirect penuh
         location.assign(url);
         reject(new Error('Popup diblok; melakukan redirect.'));
         return;
@@ -112,9 +112,8 @@
           pop.close();
           ACCESS_TOKEN = ev.data.access_token || null;
           if (!ACCESS_TOKEN) { reject(new Error('No access_token from OAuth.')); return; }
-          // simpan token + expiry untuk auto-resume halaman lain
-          saveToken(ACCESS_TOKEN, Number(ev.data.expires_in || 3600));
-          afterLogin().then(resolve).catch(reject);
+          saveToken(ACCESS_TOKEN, Number(ev.data.expires_in || 3600)); // persist utk auto-resume
+          afterLogin().then(() => { broadcast('in'); resolve(); }).catch(reject);
         } catch(e){ clearInterval(timer); reject(e); }
       }
       window.addEventListener('message', onMsg);
@@ -137,7 +136,17 @@
         sessionStorage.removeItem(STORE_EXP);
       } catch(_) {}
       setAuthUI(false);
+      broadcast('out');
     }
+  }
+
+  // ===== Auto-resume =====
+  async function tryResume() {
+    const t = loadTokenIfValid();
+    if (!t) return false;
+    ACCESS_TOKEN = t;
+    try { await afterLogin(); broadcast('in'); return true; }
+    catch { ACCESS_TOKEN = null; return false; }
   }
 
   // ===== Fetch helpers =====
@@ -215,12 +224,30 @@
     return data.id;
   }
 
-  async function uploadPdf(file, contentHash, moduleName){
+  /**
+   * Upload PDF ke Drive.
+   * @param {File} file - PDF.
+   * @param {string|null} contentHash - Optional prefix hash (untuk nama panjang). Abaikan jika simpleName=true.
+   * @param {string|null} moduleName - Nama subfolder. null/'' => root Bribox Kanpus.
+   * @param {object} opts - { simpleName:boolean } => pakai nama file asli (tanpa hash).
+   * @returns {Promise<{id:string,name:string}>}
+   */
+  async function uploadPdf(file, contentHash, moduleName, opts = {}) {
     if (!file || file.type !== 'application/pdf') throw new Error('Bukan PDF');
-    const parent = await ensureSubfolder(moduleName);
-    const safeName = (contentHash || Date.now()) + '__' + file.name.replace(/[^\w.\- ()]/g, '_');
+
+    const simpleName = !!opts.simpleName;
+    const parent = moduleName ? await ensureSubfolder(moduleName)
+                              : await ensureRootFolder();
+
+    let safeName = file.name.replace(/[^\w.\- ()]/g, '_');
+    if (!simpleName) {
+      const prefix = (contentHash || Date.now()) + '__';
+      safeName = prefix + safeName;
+    }
+
     const metadata = { name: safeName, mimeType: 'application/pdf', parents: [parent] };
 
+    // multipart/related upload
     const boundary = '-------314159265358979323846';
     const delimiter = '\r\n--' + boundary + '\r\n';
     const closeDelim = '\r\n--' + boundary + '--';
@@ -245,14 +272,14 @@
   }
 
   async function findByHashPrefix(hash, moduleName){
-    const parent = await ensureSubfolder(moduleName);
+    const parent = moduleName ? await ensureSubfolder(moduleName) : await ensureRootFolder();
     const esc = String(hash || '').replace(/'/g, "\\'");
     const files = await queryDrive(`'${parent}' in parents and trashed=false and name contains '${esc}'`);
     const prefix = String(hash || '') + '__';
     return files.find(f => (f.name || '').startsWith(prefix)) || null;
   }
 
-  // ===== PUBLIC API (sertakan tryResume agar tidak ter-overwrite) =====
+  // ===== PUBLIC API =====
   window.DriveSync = Object.assign({}, window.DriveSync, {
     signIn, signOut, tryResume,
     isLogged: () => !!ACCESS_TOKEN,
@@ -266,7 +293,7 @@
     uploadPdf, findByHashPrefix
   });
 
-  // ===== Wire tombol Connect (lib ini tidak urus banner UI) =====
+  // ===== Optional: enable button wiring kalau ada =====
   document.addEventListener('DOMContentLoaded', () => {
     setAuthUI(false);
     const btn = $('#btnConnectDrive');
@@ -278,7 +305,5 @@
         finally { btn.disabled = false; }
       });
     }
-    // Auto-resume cukup dipanggil dari halaman (DriveSync.tryResume())
-    // Tidak perlu cek GDRV_AT lagi di sini.
   });
 })();
