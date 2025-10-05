@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Login • BRIBOX KANPUS</title>
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body{display:flex;min-height:100vh;align-items:center;justify-content:center;background:#f5f7fb}
+    .login-card{background:#fff; padding:28px 24px; border-radius:14px; box-shadow:0 10px 30px rgba(0,0,0,.06); width: min(420px, 92vw);}
+    .login-card h4{font-size:14px;margin:4px 0 6px;text-align:center}
+    .brand{display:flex;gap:10px;align-items:center;justify-content:center;margin-bottom:10px}
+    .brand img{width:50px;height:50px}
+    .or{display:flex;align-items:center;gap:8px;color:#9ca3af;margin:14px 0}
+    .or::before,.or::after{content:"";flex:1;height:1px;background:#e5e7eb}
+    .btn{display:inline-flex;align-items:center;justify-content:center;width:100%;height:42px;border-radius:10px;border:1px solid #e5e7eb;background:#fff;cursor:pointer;font-weight:600}
+    .btn:hover{filter:brightness(.98)}
+    .muted{color:#9ca3af;font-size:12px;text-align:center;margin-top:10px}
+    .err{color:#b91c1c;background:#fee2e2;border:1px solid #fecaca;padding:8px 10px;border-radius:8px;margin:10px 0;display:none}
+  </style>
+
+  <!-- Google Identity Services -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script defer src="auth.js"></script>
+
+    <!-- === CONFIG (tries local, fallback to sample) === -->
+    <script src="config.local.js"></script>
+    <script>if (!window.__CONFIG) document.write('<script src="config.sample.js"><\/script>');</script>
+    <!-- === Google SDKs === -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="https://apis.google.com/js/api.js" async defer></script>
+    <!-- === Drive helper === -->
+    <script src="drive-sync.js" defer></script>
+
+  </head>
+<body data-page="login">
+  <div class="login-card" role="main">
+    <div class="brand">
+      <img src="favicon.png" alt="Logo" />
+      <div style="font-weight:700">BRIBOX KANPUS</div>
+    </div>
+    <h4>Masuk dengan Akun Google</h4>
+    
+
+    <div id="gbtn" style="display:flex;justify-content:center"></div>
+    <div class="or"><span>atau</span></div>
+    <button id="devLogin" class="btn" type="button">Masuk Tanpa Google</button>
+
+    <div id="err" class="err" role="alert"></div>
+    <div class="muted">Dengan masuk akun google, data akan tersimpan dan sync di device lain</div>
+  </div>
+
+<script>
+  // ===== helpers =====
+  const basePath = () => location.pathname.replace(/[^/]*$/, '');
+  function normalizeNext(next) {
+    if (!next) return 'trackmate.html';
+    const n = String(next).replace(/^\//,'').trim();
+    return /(^|\/)index\.html$/i.test(n) ? 'trackmate.html' : n;
+  }
+  function nextUrl() {
+    const n = normalizeNext(new URLSearchParams(location.search).get('next'));
+    return basePath() + n;
+  }
+
+  // Jika sudah login & masih valid, langsung lempar ke next
+  (function(){
+    try{
+      const auth = window.Auth && window.Auth.get?.();
+      if (auth) location.replace(nextUrl());
+    }catch{}
+  })();
+
+  // Inisialisasi tombol Google setelah GIS siap
+  window.addEventListener('load', function initGSI(){
+    if(!window.google || !google.accounts || !google.accounts.id) return;
+    const CLIENT_ID = (window.Auth && Auth.GOOGLE_CLIENT_ID) || "PASTE_YOUR_CLIENT_ID.apps.googleusercontent.com"; // TODO: ganti
+    google.accounts.id.initialize({
+      client_id: CLIENT_ID,
+      callback: async (resp) => {
+        try{
+          // ⬇️ cukup serahkan ke auth.js; dia yang akan redirect ke ?next
+          await Auth.handleGoogleCredential(resp.credential);
+        }catch(e){
+          const el=document.getElementById('err');
+          el.style.display='block'; 
+          el.textContent = e?.message || 'Login gagal.';
+        }
+      },
+      auto_select: false,
+      cancel_on_tap_outside: true
+    });
+    google.accounts.id.renderButton(
+      document.getElementById('gbtn'),
+      { theme:'filled_blue', size:'large', shape:'pill', width:320 }
+    );
+  });
+
+  // DEV fallback (tanpa Google) — klik 1x langsung masuk
+  document.getElementById('devLogin').addEventListener('click', async () => {
+    try{
+      // ⬇️ biarkan auth.js yang redirect sesuai ?next
+      await Auth.devLogin();
+    }catch(e){
+      const el=document.getElementById('err');
+      el.style.display='block'; 
+      el.textContent = e?.message || 'Login gagal.';
+    }
+  });
+</script>
+
+</body>
+</html>

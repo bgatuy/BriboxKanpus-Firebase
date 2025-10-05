@@ -1,0 +1,331 @@
+/* ====== Tap highlight reset (Mobile Safari/Chrome) ====== */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* =========================================================
+   MONTHLY — FORM (scoped, bersih, responsif)
+   ========================================================= */
+
+/* ---- Variables & base ---- */
+body[data-page="monthly"]{
+  /* spacing & sizing */
+  --gap-x:16px;
+  --gap-y:16px;
+  --gap-field:8px;
+  --label-h:18px;
+
+  --ctl-h:44px;          /* tinggi kontrol single-line */
+  --ctl-pad-x:12px;
+  --ctl-radius:10px;
+  --ctl-font:13px;
+
+  --btn-h:40px;
+  --btn-r:10px;
+  --btn-pad-x:14px;
+
+  /* colors */
+  --border:#e5e7eb;
+  --text:#111827;
+  --muted:#6b7280;
+
+  --primary: #22c55e;
+  --danger: #ef4444;
+  --info: #2563eb;
+}
+
+/* Dark overrides (pakai warna border & teks lebih kalem) */
+body[data-page="monthly"].dark-mode{
+  --border:#374151;
+  --text:#e5e7eb;
+  --muted:#9ca3af;
+}
+
+/* Guard: cegah konten meluber saat sidebar hidden */
+body[data-page="monthly"] .dashboard .main{ min-width:0; }
+
+/* ---- Header kecil (ikon toggle dsb.) ---- */
+body[data-page="monthly"] .dashboard-header{ display:flex; align-items:center; gap:12px; }
+body[data-page="monthly"] .dashboard-header h1{ flex:1; text-align:center; }
+body[data-page="monthly"] .btn.icon{
+  width:40px; height:40px; padding:0;
+  display:inline-flex; align-items:center; justify-content:center;
+  border-radius:var(--btn-r);
+}
+
+/* =========================================================
+   Grid & Field
+   ========================================================= */
+body[data-page="monthly"] .grid{
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0,1fr));
+  column-gap:var(--gap-x);
+  row-gap:var(--gap-y);
+}
+body[data-page="monthly"] .field{
+  display:flex; flex-direction:column; gap:var(--gap-field);
+}
+body[data-page="monthly"] .field > span{
+  color:var(--muted); font-size:12px;
+  height:var(--label-h); display:flex; align-items:center;
+}
+body[data-page="monthly"] .field em{ color:#ef4444; font-style:normal; }
+body[data-page="monthly"] .field.full{ grid-column:1 / -1; }
+body[data-page="monthly"] .row-inline{ display:flex; gap:8px; }
+
+/* =========================================================
+   Controls (inputs, select, textarea)
+   ========================================================= */
+body[data-page="monthly"] input,
+body[data-page="monthly"] select,
+body[data-page="monthly"] textarea{
+  width:100%;
+  border:1px solid var(--border);
+  background:#fff; color:var(--text);
+  border-radius:var(--ctl-radius);
+  box-sizing:border-box;
+  outline:none; transition:.2s;
+  font-size:var(--ctl-font);
+  margin:0; /* normalize */
+}
+
+/* Single-line controls → tinggi seragam */
+body[data-page="monthly"] input:not([type="checkbox"]):not([type="radio"]),
+body[data-page="monthly"] select{
+  height:var(--ctl-h);
+  padding:0 var(--ctl-pad-x);
+  line-height:1;
+}
+
+/* Date/Time: ruang indikator */
+body[data-page="monthly"] input[type="date"],
+body[data-page="monthly"] input[type="time"]{ padding-right:36px; }
+
+/* Textarea fleksibel */
+body[data-page="monthly"] textarea{
+  min-height:96px;
+  padding:10px var(--ctl-pad-x);
+  line-height:1.45; resize:vertical;
+}
+
+/* Focus ring konsisten */
+body[data-page="monthly"] input:focus,
+body[data-page="monthly"] select:focus,
+body[data-page="monthly"] textarea:focus{
+  border-color:#2563eb;
+  box-shadow:0 0 0 4px rgba(59,130,246,.25);
+}
+
+/* WebKit fine-tune (Chrome/Edge) */
+body[data-page="monthly"] input[type="date"]::-webkit-datetime-edit,
+body[data-page="monthly"] input[type="time"]::-webkit-datetime-edit{ padding:0; }
+body[data-page="monthly"] input[type="date"]::-webkit-calendar-picker-indicator,
+body[data-page="monthly"] input[type="time"]::-webkit-calendar-picker-indicator{ margin-right:6px; }
+
+/* Field "Keterangan" sedikit lega */
+body[data-page="monthly"] #formReport .field.full{ margin-top:12px; gap:10px; }
+
+/* Card spacing */
+body[data-page="monthly"] .card + .card{ margin-top:18px; }
+body[data-page="monthly"] .card{ padding-bottom:18px; }
+body[data-page="monthly"] .card h3{ margin:0 0 6px; }
+body[data-page="monthly"] .card .muted{ margin:0 0 12px; }
+
+/* =========================================================
+   Buttons
+   ========================================================= */
+body[data-page="monthly"] a.btn{ text-decoration:none; }
+body[data-page="monthly"] .btn{
+  height:var(--btn-h);
+  padding:0 var(--btn-pad-x);
+  border-radius:var(--btn-r);
+  display:inline-flex; align-items:center; justify-content:center;
+  line-height:1; font-weight:600; cursor:pointer;
+  border:1px solid var(--border); background:#fff; color:#111827;
+  transition:transform .06s ease, filter .15s ease;
+}
+body[data-page="monthly"] .btn:active{ transform:translateY(1px); }
+body[data-page="monthly"] .btn:hover{ filter:brightness(.97); }
+
+body[data-page="monthly"] .btn.primary{ background:var(--primary); border-color:var(--primary); color:#fff; }
+body[data-page="monthly"] .btn.danger { background:var(--danger);  border-color:var(--danger);  color:#fff; }
+body[data-page="monthly"] .btn.info   { background:var(--info);    border-color:var(--info);    color:#fff; }
+body[data-page="monthly"] .btn.outline{ background:#fff; border:1px solid var(--border); color:#111827; }
+
+/* =========================================================
+   Toolbar + Meta (menyatu)
+   ========================================================= */
+body[data-page="monthly"] .toolbar{
+  margin-top:16px;
+  display:flex; align-items:center; justify-content:space-between;
+  gap:12px; flex-wrap:wrap;
+}
+body[data-page="monthly"] .toolbar-left,
+body[data-page="monthly"] .toolbar-right{ display:flex; align-items:center; gap:10px; }
+
+body[data-page="monthly"] .meta-inline{
+  margin-top:14px; padding-top:10px;
+  border-top:1px solid var(--border);
+  display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+  font-size:13px; color:var(--muted);
+}
+body[data-page="monthly"] .meta-inline strong{ color:#111827; }
+body[data-page="monthly"].dark-mode .meta-inline strong{ color:#e5e7eb; }
+
+/* =========================
+   DARK MODE — MONTHLY FORM
+   ========================= */
+
+/* sinkronkan variabel warna saat dark mode */
+body[data-page="monthly"].dark-mode,
+body.dark-mode[data-page="monthly"]{
+  --border:#374151;         /* slate-700 */
+  --text:#e5e7eb;           /* zinc-200 */
+  --muted:#9ca3af;          /* zinc-400 */
+}
+
+/* input, select, textarea */
+body.dark-mode[data-page="monthly"] input,
+body.dark-mode[data-page="monthly"] select,
+body.dark-mode[data-page="monthly"] textarea{
+  background: #444;       /* gray-800/900 look */
+  color: #e5e7eb;
+  border-color: #374151;
+}
+body.dark-mode[data-page="monthly"] input::placeholder,
+body.dark-mode[data-page="monthly"] textarea::placeholder{
+  color:#9ca3af;
+}
+
+/* focus ring sedikit ditone-down biar nggak silau */
+body.dark-mode[data-page="monthly"] input:focus,
+body.dark-mode[data-page="monthly"] select:focus,
+body.dark-mode[data-page="monthly"] textarea:focus{
+  border-color:#2563eb;
+  box-shadow:0 0 0 4px rgba(59,130,246,.20);
+}
+
+/* tombol: biarkan .primary/.danger/.info tetap berwarna;
+   cukup ubah varian netral/outline agar gelap */
+body.dark-mode[data-page="monthly"] .btn.outline{
+  background:#111827;
+  border-color:#374151;
+  color:#e5e7eb;
+}
+
+/* toolbar & meta garis halus */
+body.dark-mode[data-page="monthly"] .meta-inline{
+  border-top:1px solid #374151;
+  color:#9ca3af;
+}
+body.dark-mode[data-page="monthly"] .meta-inline strong{ color:#e5e7eb; }
+
+/* card sudah di-handle global, tapi tambahkan bayangan sedikit */
+body.dark-mode[data-page="monthly"] .card{
+  box-shadow:0 2px 10px rgba(0,0,0,.35);
+}
+
+
+/* =========================================================
+   Responsive
+   ========================================================= */
+
+/* Tablet ↓: lebih rapat sedikit */
+@media (max-width:900px){
+  body[data-page="monthly"]{
+    --gap-x:14px; --gap-y:14px;
+    --ctl-h:42px; --btn-h:38px;
+  }
+}
+
+/* ====== Bottom actions: Simpan, Reset, Lihat Data (Mobile) ====== */
+@media (max-width:768px){
+  /* samain tinggi tombol mobile */
+  body[data-page="monthly"]{ --btn-h:38px; }
+
+  /* Simpan & Reset sejajar 2 kolom */
+  body[data-page="monthly"] .btn-row{
+    display:grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap:10px;
+    align-items:stretch;
+    justify-items:stretch;
+    margin-top:16px;
+  }
+
+  /* semua tombol proporsional */
+  body[data-page="monthly"] .btn-row .btn,
+  body[data-page="monthly"] .btn-row a.btn{
+    width:100%;
+    min-height:var(--btn-h);
+    margin:0;
+  }
+
+  /* Lihat Data → center, ukuran proporsional (nggak full width) */
+  body[data-page="monthly"] .btn-row .btn:nth-child(3),
+  body[data-page="monthly"] .btn-row a.btn:nth-child(3){
+    grid-column: 1 / -1;
+    justify-self: center;
+    width: min(240px, 80%);
+  }
+
+  body[data-page="monthly"] .grid{
+    grid-template-columns: 1fr !important;  /* ini kuncinya */
+  }
+  body[data-page="monthly"] .field{ min-width: 0; } /* biar gak melar */
+}
+
+/* HP mungil banget → biarin full width biar gampang tap */
+@media (max-width:360px){
+  body[data-page="monthly"] .btn-row .btn:nth-child(3),
+  body[data-page="monthly"] .btn-row a.btn:nth-child(3){
+    width:100%;
+  }
+}
+
+/* ===== iOS-ONLY (Safari) — Monthly Form: Tanggal & Bulan rapi ===== */
+@supports (-webkit-touch-callout: none) {
+
+  /* === Input Tanggal === */
+  body[data-page="monthly"] input[type="date"]{
+    -webkit-appearance: none;
+    appearance: none;
+    height: var(--ctl-h) !important;         /* = 44px dari variabelmu */
+    padding: 0 var(--ctl-pad-x) !important;  /* horizontal saja */
+    line-height: var(--ctl-h) !important;    /* center vertikal */
+    font-size: 13px !important;              /* konsisten dgn desain */
+    text-align: left !important;
+    padding-top: 1px !important;             /* buffer biar gak mepet atas */
+  }
+  body[data-page="monthly"] input[type="date"]::-webkit-date-and-time-value{
+    text-align: left !important;
+  }
+
+  /* === Input Bulan === */
+  body[data-page="monthly"] input[type="month"]{
+    -webkit-appearance: none;
+    appearance: none;
+    box-sizing: border-box;
+
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+
+    height: var(--ctl-h) !important;
+    padding: 0 var(--ctl-pad-x) !important;
+
+    text-align: left !important;
+    text-align-last: left !important;
+    line-height: var(--ctl-h) !important;
+    font-size: 13px !important;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--ctl-radius);
+  }
+  body[data-page="monthly"] input[type="month"]::-webkit-date-and-time-value{
+    text-align: left !important;
+  }
+
+  /* jaga supaya field gak melar */
+  body[data-page="monthly"] .field{ min-width: 0; }
+}

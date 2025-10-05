@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>BRIBOX KANPUS</title>
+  <link rel="icon" type="image/png" href="./favicon.png" />
+  <link rel="stylesheet" href="style.css"/>
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
+
+    <!-- === CONFIG (tries local, fallback to sample) === -->
+    <script src="config.local.js"></script>
+    <script>if (!window.__CONFIG) document.write('<script src="config.sample.js"><\/script>');</script>
+    <!-- === Google SDKs === -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="https://apis.google.com/js/api.js" async defer></script>
+    <!-- === Drive helper === -->
+    <script src="drive-sync.js" defer></script>
+
+  </head>
+<body>
+  <div class="dashboard">
+    <aside class="sidebar">
+      <h2 class="logo">
+      <img src="favicon.png" alt="Logo" class="logo-icon" />
+       BRIBOX KANPUS</h2>
+       
+      <nav>
+        <a href="trackmate.html">📋 Trackmate</a>
+        <a href="appsheet.html" class="active">📋 AppSheet</a>
+        <a href="formserahterima.html">📝 Form Serah Terima</a>
+        <!-- Parent collapsible Monthly Report -->
+        <button class="nav-group" type="button"
+        aria-controls="nav-monthly" aria-expanded="false"
+        onclick="
+        const t=this, m=document.getElementById('nav-monthly');
+        const ex=t.getAttribute('aria-expanded')==='true';
+        t.setAttribute('aria-expanded', String(!ex)); 
+        m.hidden=ex;
+      ">📅 Monthly Report</button>
+
+      <!-- Submenu Monthly -->
+        <div id="nav-monthly" class="submenu" hidden>
+          <a href="monthly-report/monthly-form.html">Monthly Report Form</a>
+          <a href="monthly-report/monthly-data.html">Monthly Report Data</a>
+        </div>
+      </nav>
+      <div class="sidebar-credit" aria-label="Project credit">
+        Web App Created By BangAtuy - 2025
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="dashboard-header">
+        <button class="sidebar-toggle-btn" onclick="toggleSidebar()">☰</button>
+        <h1><span class="material-icons">description</span> AppSheet</h1>
+        <button id="toggleModeBtn" onclick="toggleDarkMode()">🌙</button>
+      </header>
+
+      <section class="card">
+        <h3>Upload Form PDF Kalian Disini Lalu Pilih Lokasi Divisi!</h3>
+        
+        <label for="pdfFile" class="upload-label">
+          <span class="material-icons">picture_as_pdf</span> Pilih File PDF
+        </label>
+        <input type="file" id="pdfFile" accept="application/pdf"/>
+
+        <div class="form-group">
+          <label for="inputLokasi">Pilih Lokasi Divisi :</label>
+          <select id="inputLokasi">
+            <option value="">-- Pilih Lokasi --</option>
+            <option value="BRI 1 Lt. Split">BRI 1 Lt. Split</option>
+            <option value="BRI 1 Lt. 2">BRI 1 Lt. 2</option>
+            <option value="BRI 1 Lt. 3">BRI 1 Lt. 3</option>
+            <option value="BRI 1 Lt. 4">BRI 1 Lt. 4</option>
+            <option value="BRI 1 Lt. 5">BRI 1 Lt. 5</option>
+            <option value="BRI 1 Lt. 6">BRI 1 Lt. 6</option>
+            <option value="BRI 1 Lt. 7">BRI 1 Lt. 7</option>
+            <option value="BRI 1 Lt. 8">BRI 1 Lt. 8</option>
+            <option value="BRI 1 Lt. 9">BRI 1 Lt. 9</option>
+            <option value="BRI 1 Lt. 10">BRI 1 Lt. 10</option>
+            <option value="BRI 1 Lt. 11">BRI 1 Lt. 11</option>
+            <option value="BRI 1 Lt. 12">BRI 1 Lt. 12</option>
+            <option value="BRI 1 Lt. 13">BRI 1 Lt. 13</option>
+            <option value="BRI 1 Lt. 14">BRI 1 Lt. 14</option>
+            <option value="BRI 1 Lt. 15">BRI 1 Lt. 15</option>
+            <option value="BRI 1 Lt. 16">BRI 1 Lt. 16</option>
+            <option value="BRI 1 Lt. 17">BRI 1 Lt. 17</option>
+            <option value="BRI 1 Lt. 18">BRI 1 Lt. 18</option>
+            <option value="BRI 1 Lt. 19">BRI 1 Lt. 19</option>
+            <option value="BRI 1 Lt. 20">BRI 1 Lt. 20</option>
+            <option value="BRI 2 Lt. Basement">BRI 2 Lt. Basement</option>
+            <option value="BRI 2 Lt. 2">BRI 2 Lt. 2</option>
+            <option value="BRI 2 Lt. 3">BRI 2 Lt. 3</option>
+            <option value="BRI 2 Lt. 4">BRI 2 Lt. 4</option>
+            <option value="BRI 2 Lt. 5">BRI 2 Lt. 5</option>
+            <option value="BRI 2 Lt. 6">BRI 2 Lt. 6</option>
+            <option value="BRI 2 Lt. 7">BRI 2 Lt. 7</option>
+            <option value="BRI 2 Lt. 8">BRI 2 Lt. 8</option>
+            <option value="BRI 2 Lt. 9">BRI 2 Lt. 9</option>
+            <option value="BRI 2 Lt. 10">BRI 2 Lt. 10</option>
+            <option value="BRI 2 Lt. 11">BRI 2 Lt. 11</option>
+            <option value="BRI 2 Lt. 12">BRI 2 Lt. 12</option>
+            <option value="BRI 2 Lt. 13">BRI 2 Lt. 13</option>
+            <option value="BRI 2 Lt. 14">BRI 2 Lt. 14</option>
+            <option value="BRI 2 Lt. 15">BRI 2 Lt. 15</option>
+            <option value="BRI 2 Lt. 16">BRI 2 Lt. 16</option>
+            <option value="BRI 2 Lt. 17">BRI 2 Lt. 17</option>
+            <option value="BRI 2 Lt. 18">BRI 2 Lt. 18</option>
+            <option value="BRI 2 Lt. 19">BRI 2 Lt. 19</option>
+            <option value="BRI 2 Lt. 20">BRI 2 Lt. 20</option>
+            <option value="BRI 2 Lt. 21">BRI 2 Lt. 21</option>
+            <option value="BRI 2 Lt. 22">BRI 2 Lt. 22</option>
+            <option value="BRI 2 Lt. 23">BRI 2 Lt. 23</option>
+            <option value="BRI 2 Lt. 24">BRI 2 Lt. 24</option>
+            <option value="BRI 2 Lt. 25">BRI 2 Lt. 25</option>
+            <option value="BRI 2 Lt. 26">BRI 2 Lt. 26</option>
+            <option value="BRI 2 Lt. 27">BRI 2 Lt. 27</option>
+            <option value="BRI 2 Lt. 28">BRI 2 Lt. 28</option>
+            <option value="BRI 2 Lt. 29">BRI 2 Lt. 29</option>
+            <option value="BRI 2 Lt. 30">BRI 2 Lt. 30</option>
+            <option value="BRI 2 Lt. 31">BRI 2 Lt. 31</option>
+            <option value="Gd. Parkir BRI Lt. 1">Gd. Parkir BRI Lt. 1</option>
+            <option value="Gd. Parkir BRI Lt. 5">Gd. Parkir BRI Lt. 5</option>
+            <option value="Gd. Parkir BRI Lt. 8">Gd. Parkir BRI Lt. 8</option>
+            <option value="Menara Brilian Lt. 5">Menara Brilian Lt. 5</option>
+            <option value="Menara Brilian Lt. 8">Menara Brilian Lt. 8</option>
+            <option value="Menara Brilian Lt. 9">Menara Brilian Lt. 9</option>
+            <option value="Menara Brilian Lt. 26">Menara Brilian Lt. 26</option>
+            <option value="Menara Brilian Lt. 27">Menara Brilian Lt. 27</option>
+            <option value="Menara Brilian Lt. 28">Menara Brilian Lt. 28</option>
+            <option value="Menara Brilian Lt. 29">Menara Brilian Lt. 29</option>
+            <option value="Menara Brilian Lt. 30">Menara Brilian Lt. 30</option>
+            <option value="Menara Brilian Lt. 31">Menara Brilian Lt. 31</option>
+            <option value="Menara Brilian Lt. 32">Menara Brilian Lt. 32</option>
+            <option value="Menara Brilian Lt. 33">Menara Brilian Lt. 33</option>
+            <option value="Menara Brilian Lt. 37">Menara Brilian Lt. 37</option>
+            <option value="Menara Brilian Lt. 40">Menara Brilian Lt. 40</option>
+            <option value="PSCF Ragunan Lt. 1">PSCF Ragunan Lt. 1</option>
+            <option value="PSCF Ragunan Lt. 2">PSCF Ragunan Lt. 2</option>
+            <option value="PSCF Ragunan Lt. 3">PSCF Ragunan Lt. 3</option>
+            <option value="GTI Ragunan Lt. 5">GTI Ragunan Lt. 5</option>
+            <option value="GTI Ragunan Lt. 6">GTI Ragunan Lt. 6</option>
+            <option value="GTI Ragunan Lt. 7">GTI Ragunan Lt. 7</option>
+            <option value="GTI Ragunan Lt. 8">GTI Ragunan Lt. 8</option>
+        </select>
+      </div>
+
+        <pre id="output" class="output-preview">Text akan muncul di sini...</pre>
+        <button id="copyBtn" class="primary">Copy</button>
+      </section>
+    </main>
+  </div>
+  
+  <script>
+    if (localStorage.getItem('darkMode') === 'true') {
+      document.body.classList.add('dark-mode');
+    }
+    document.addEventListener('DOMContentLoaded', () => {
+      const toggleBtn = document.getElementById('toggleModeBtn');
+      if (toggleBtn) {
+        toggleBtn.textContent = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
+      }
+    });
+    function toggleDarkMode() {
+      const isDark = document.body.classList.toggle('dark-mode');
+      localStorage.setItem('darkMode', isDark);
+      document.getElementById('toggleModeBtn').textContent = isDark ? '☀️' : '🌙';
+    }
+    function toggleSidebar() {
+      document.querySelector('.sidebar').classList.toggle('hidden');
+    }
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+  <script>
+    if (window.pdfjsLib && (!pdfjsLib.GlobalWorkerOptions.workerSrc || pdfjsLib.GlobalWorkerOptions.workerSrc === '')) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc ='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+  }
+  </script>
+  
+  <script src="appsheet.js"></script>
+</body>
+</html>
