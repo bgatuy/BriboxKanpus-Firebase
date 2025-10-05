@@ -214,55 +214,19 @@
   <script defer src="drive-queue.js"></script>
   <!-- === Drive (force show bar dulu, baru coba silent) === -->
 <script>
-  // TUNGGU SDK
-  const whenGIS = new Promise(r => {
-    if (window.google?.accounts?.oauth2) return r();
-    const t = setInterval(() => { if (window.google?.accounts?.oauth2) { clearInterval(t); r(); } }, 50);
-    setTimeout(() => { clearInterval(t); r(); }, 7000); // fallback
+document.addEventListener('DOMContentLoaded', () => {
+  const bar = document.getElementById('driveConnectBar');
+  const btn = document.getElementById('btnConnectDrive');
+  if (bar) bar.style.display = 'block';
+  btn?.addEventListener('click', async () => {
+    btn.disabled = true;
+    try { await DriveSync.signIn(); bar?.remove(); }
+    catch (e) { alert('Gagal connect Drive.\n' + (e?.message || e)); if (bar) bar.style.display = 'block'; }
+    finally { btn.disabled = false; }
   });
-  const whenGapi = new Promise(r => {
-    if (window.gapi?.client) return r();
-    const t = setInterval(() => { if (window.gapi?.client) { clearInterval(t); r(); } }, 50);
-    setTimeout(() => { clearInterval(t); r(); }, 7000); // fallback
-  });
-
-
-  // ... kode whenGIS/whenGapi tetap ...
-  document.addEventListener('DOMContentLoaded', async () => {
-    const bar = document.getElementById('driveConnectBar');
-    const btn = document.getElementById('btnConnectDrive');
-
-    // tampilkan bar dulu
-    if (bar) bar.style.display = 'block';
-
-    try {
-      await Promise.all([whenGIS, whenGapi]);
-      if (window.DriveSync && !DriveSync.isLogged()) await DriveSync.signInSilent();
-    } catch {}
-
-    if (bar && window.DriveSync?.isLogged?.()) bar.remove();
-
-    btn?.addEventListener('click', async () => {
-      btn.disabled = true;
-      try {
-        await whenGIS; await whenGapi;
-        await DriveSync.signIn();
-        bar?.remove();
-      } catch (e) {
-        // ⬇️ tampilkan pesan detail, agar kita tahu penyebabnya
-        const msg = [e?.error, e?.error_description, e?.message, e?.toString?.()]
-          .filter(Boolean).join('\n');
-        alert('Gagal connect Drive.\n' + (msg || '(no details)'));
-        console.error('[Drive connect error]', e);
-        if (bar) bar.style.display = 'block';
-      } finally {
-        btn.disabled = false;
-      }
-    });
-
-    window.DriveQueue?.init?.();
-  });
+});
 </script>
+
 
   <!-- === App logic === -->
   <script src="trackmate.js"></script>

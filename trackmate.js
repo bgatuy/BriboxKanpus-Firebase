@@ -12,6 +12,55 @@ async function sha256File(file) {
   }
 }
 
+
+document.addEventListener('DOMContentLoaded', () => {
+  const pdfInput   = document.getElementById('pdfFile');
+  const lokasiSel  = document.getElementById('inputLokasi');
+  const output     = document.getElementById('output');
+
+  async function sha256Hex(ab){
+    const hash = await crypto.subtle.digest('SHA-256', ab);
+    return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  }
+
+  async function maybeUpload(){
+    const file   = pdfInput?.files?.[0];
+    const lokasi = (lokasiSel?.value || '').trim();
+    if (!file || !lokasi) return;                  // tunggu dua-duanya terisi
+    if (!window.DriveSync?.isLogged?.()) { alert('Sambungkan Google Drive dulu.'); return; }
+
+    output.textContent = 'Menghitung hash & menyiapkan upload...';
+    const hash = await sha256Hex(await file.arrayBuffer());
+
+    try {
+      // cek duplikat (nama file app = "<hash>__nama.pdf")
+      const ex = await DriveSync.findByHashPrefix(hash, lokasi);
+      let fileMeta;
+      if (ex) {
+        fileMeta = { id: ex.id, name: ex.name };
+        output.textContent = 'File sudah ada, tidak diupload ulang.';
+      } else {
+        output.textContent = 'Mengupload ke Drive...';
+        fileMeta = await DriveSync.uploadPdf(file, hash, lokasi);   // ⬅️ upload ke subfolder sesuai “Lokasi Divisi”
+        output.textContent = 'Upload selesai.';
+      }
+
+      // tampilkan link Drive
+      const url = `https://drive.google.com/file/d/${fileMeta.id}/view`;
+      output.textContent += `\n\nNama: ${fileMeta.name}\nLink: ${url}`;
+    } catch (e) {
+      output.textContent = 'Gagal upload: ' + (e?.message || e);
+      console.error('[upload error]', e);
+    }
+  }
+
+  // trigger kalau user pilih file ATAU ganti lokasi
+  pdfInput?.addEventListener('change', maybeUpload);
+  lokasiSel?.addEventListener('change', maybeUpload);
+});
+
+
+
 /* ========= SIDEBAR ========= */
 const sidebar   = document.querySelector('.sidebar');
 const overlay   = document.getElementById('sidebarOverlay') || document.querySelector('.sidebar-overlay');
