@@ -1,4 +1,16 @@
-// auth.js — sesi 10 jam + guard halaman + redirect aman
+/**
+ * Auth (App session 10 jam) + Google Sign-In (accounts.id)
+ * - Simpan sesi app di localStorage (tanpa backend)
+ * - Guard semua halaman fitur -> redirect ke login
+ * - Halaman login: render tombol Google otomatis (mountGoogleButton)
+ * - Setelah login: redirect ke ?next=... (default trackmate.html)
+ *
+ * Prasyarat di HTML (urutan):
+ *   <script src="config.local.js"></script>
+ *   <script>if(!window.__CONFIG){document.write('<script src="config.sample.js"><\/script>')}</script>
+ *   <script src="https://accounts.google.com/gsi/client" async defer></script>
+ *   <script src="auth.js" defer></script>
+ */
 (function () {
   const LS_KEY = 'auth_v1';
   const TEN_HOURS = 10 * 60 * 60 * 1000;
@@ -8,7 +20,6 @@
   const fileNow  = () => (location.pathname.split('/').pop() || '').trim();
   const safeJSON = s => { try { return JSON.parse(s); } catch { return null; } };
 
-  // Jangan biarkan next = index.html (login). Defaultkan ke trackmate.html
   function normalizeNext(next) {
     if (!next) return 'trackmate.html';
     const n = next.replace(/^\//, '').trim();
@@ -29,8 +40,7 @@
   function parseJwt(token) {
     try {
       const b = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-      const json = decodeURIComponent(atob(b).split('')
-        .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+      const json = decodeURIComponent(atob(b).split('').map(c => '%'+('00'+c.charCodeAt(0).toString(16)).slice(-2)).join(''));
       return JSON.parse(json);
     } catch { return null; }
   }
@@ -42,7 +52,7 @@
 
   // ====== Auth API ======
   const Auth = {
-    // isi ini kalau nanti kamu pakai Google Identity
+    // Bisa diisi manual kalau perlu, default ambil dari window.__CONFIG
     GOOGLE_CLIENT_ID: '',
 
     // ---- session store ----
@@ -72,7 +82,6 @@
     // ---- guard: panggil di SEMUA halaman fitur ----
     enforce() {
       if (!this.get()) {
-        // kalau user membuka halaman fitur tanpa login → lempar ke login, next = file sekarang
         const f = fileNow() || 'trackmate.html';
         goLogin(f);
         return null;
@@ -85,7 +94,6 @@
       if (!confirm('Keluar dari sesi ini?')) return;
       this.clear();
       emitAuthChange();
-      // balik ke login dengan next default yang jelas
       goLogin('trackmate.html');
     },
 
@@ -104,12 +112,54 @@
     }
   };
 
+  // ---- Google Sign-In (accounts.id) ----
+  function waitGIS() {
+    return new Promise((res) => {
+      if (window.google?.accounts?.id) return res();
+      const id = setInterval(() => {
+        if (window.google?.accounts?.id) { clearInterval(id); res(); }
+      }, 40);
+    });
+  }
+
+  // Render tombol Google ke selector (mis. '#googleLoginBtn') dan aktifkan One Tap
+  Auth.mountGoogleButton = async function (selector = '#googleLoginBtn') {
+    const CLIENT_ID = window.__CONFIG?.GOOGLE_CLIENT_ID || this.GOOGLE_CLIENT_ID || '';
+    if (!CLIENT_ID) {
+      console.error('[Auth] GOOGLE_CLIENT_ID kosong. Pastikan config.local.js ter-load lebih dulu.');
+      alert('Konfigurasi Google belum terpasang. Hubungi admin.');
+      return;
+    }
+    await waitGIS();
+    const el = document.querySelector(selector);
+    if (!el) return;
+
+    google.accounts.id.initialize({
+      client_id: CLIENT_ID,
+      ux_mode: 'popup',
+      auto_select: false,
+      callback: (response) => {
+        // response.credential = ID Token (JWT)
+        try { Auth.handleGoogleCredential(response.credential); }
+        catch (e) { alert('Login gagal: ' + (e?.message || e)); }
+      }
+    });
+
+    // Tombol resmi Google
+    google.accounts.id.renderButton(el, {
+      theme: 'filled_blue', size: 'large', type: 'standard', shape: 'pill'
+    });
+
+    // Opsional: One Tap
+    google.accounts.id.prompt();
+  };
+
   // expose
   window.Auth = Auth;
 
   // ===== Header helper (HANYA untuk halaman fitur) =====
   document.addEventListener('DOMContentLoaded', () => {
-    const f = fileNow().toLowerCase();
+    const f = (fileNow() || '').toLowerCase();
     if (f === 'index.html' || f === '') return; // jangan utak-atik halaman login
 
     const btn = document.querySelector('#btnAuth'); // tombol di header
@@ -137,3 +187,4 @@
     window.addEventListener('auth:change', render);
   });
 })();
+
