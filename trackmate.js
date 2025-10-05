@@ -600,49 +600,65 @@ copyBtn?.addEventListener("click", async () => {
       uploadedAt: new Date().toISOString()
     };
 
-    // 4) Cek duplikat yang bener-bener robust
+    // 4) Cek duplikat (hash / name+size)
     const histori = readHistoriSafe();
     const exists = histori.length > 0 && histori.some(r => isDuplicateRow(r, file, contentHash));
-    if (exists) { showToast("ℹ Sudah ada di histori", 3000, "info"); return; }
+    if (exists) { 
+      // tetap coba upload ke Drive (dedupe by hash akan mencegah dobel di Drive)
+      try {
+        // hitung meta langsung dari file agar tidak bergantung ke IDB
+        let metaForDrive = null;
+        try {
+          const buf = await file.arrayBuffer();
+          metaForDrive = await autoCalibratePdf(buf);
+        } catch {}
+        await tryUploadOriginalToDrive(file, contentHash, metaForDrive);
+      } catch {}
+      showToast("ℹ Sudah ada di histori", 3000, "info"); 
+      return; 
+    }
 
-    // 5) Belum ada ⇒ simpan ke histori (localStorage), lalu coba simpan file ke IDB
+    // 5) Tambah ke histori localStorage (langsung)
     histori.push(newEntry);
     writeHistori(histori);
 
-    const TIMEOUT_MS = 3000; // 3s batas tunggu supaya gak lama
+    // === Hitung meta SEKALI (dipakai IDB & Drive) ===
+    let metaForBoth = null;
     try {
-      await Promise.race([
-        (async () => {
-          await savePdfToIndexedDB_keepSchema(file, { contentHash });  // simpan file asli + hash + meta (store lama)
-          await saveBlobByHash(file, contentHash);                      // simpan juga ke store baru (ikut meta)
-        })(),
-        new Promise((_, rej) => setTimeout(() => rej(new Error("IDB timeout")), TIMEOUT_MS))
-      ]);
+      const buf = await file.arrayBuffer();
+      metaForBoth = await autoCalibratePdf(buf);
+    } catch {}
 
-      // === Upload ke Google Drive (optional, jika tersambung) ===
+    // 6) Jalan paralel: simpan ke IDB & upload ke Drive
+    const TIMEOUT_MS = 12000; // naikin batas tunggu IDB
+    const idbPromise = Promise.race([
+      (async () => {
+        await savePdfToIndexedDB_keepSchema(file, { contentHash });   // jalur lama
+        await saveBlobByHash(file, contentHash);                       // jalur baru (juga simpan meta di fungsi)
+      })(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("IDB timeout")), TIMEOUT_MS))
+    ]).catch(err => {
+      console.warn("IndexedDB gagal/timeout:", err);
+      // gak fatal — kita tetap lanjut; user akan dapat toast kuning di bawah
+      return null;
+    });
+
+    const drivePromise = (async () => {
       try {
-        // ambil meta dari store lama agar konsisten
-        let metaForDrive = null;
-        try {
-          const dbConn = await ensureDb();
-          const tx = dbConn.transaction(['pdfs'], 'readonly');
-          const st = tx.objectStore('pdfs');
-          const all = await new Promise(res => { const r = st.getAll(); r.onsuccess = () => res(r.result||[]); r.onerror = () => res([]); });
-          const hit = all.find(x => x?.contentHash === contentHash);
-          metaForDrive = hit?.meta || null;
-        } catch {}
-        await tryUploadOriginalToDrive(file, contentHash, metaForDrive);
+        await tryUploadOriginalToDrive(file, contentHash, metaForBoth);
       } catch (e) {
         console.warn('Drive upload skipped/error:', e);
       }
+    })();
 
-      // Sukses penuh ⇒ 1 toast hijau
+    // tunggu keduanya selesai (sukses/gagal tidak menghentikan yang lain)
+    await Promise.allSettled([idbPromise, drivePromise]);
+
+    // Notifikasi hasil IDB (kalau gagal, kasih peringatan; kalau berhasil, hijau)
+    if (await idbPromise === null) {
+      showToast("⚠ Histori disimpan. File PDF asli gagal disimpan lokal (coba ulang).", 5000, "warn");
+    } else {
       showToast("✔ Berhasil disimpan ke histori", 3000, "success");
-
-    } catch (err) {
-      console.warn("IndexedDB gagal/timeout:", err);
-      // Histori sudah tersimpan, tapi file asli gagal ⇒ 1 toast kuning
-      showToast("⚠ Histori disimpan. File PDF asli gagal disimpan (Refresh Page & Input kembali file yang sama).", 5000, "warn");
     }
 
   } catch (err) {
@@ -650,6 +666,7 @@ copyBtn?.addEventListener("click", async () => {
     showToast(`❌ Error: ${err?.message || err}`, 4500, "warn");
   }
 });
+
 
 /* ========= Toast util (FAST & RELIABLE, mobile friendly) =========
    Pakai: showToast("Berhasil", 3000, "success"|"info"|"warn")
