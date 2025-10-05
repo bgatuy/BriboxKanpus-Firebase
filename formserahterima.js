@@ -1133,21 +1133,16 @@ btnReset?.addEventListener('click', async ()=>{
 
   updateHydrateBanner(0, targets.length);
 
-  // worker pool
   const CONCURRENCY = 3;
   let idx = 0, done = 0;
 
   async function withTimeout(p, ms){
-    return await Promise.race([
-      p,
-      new Promise(res => setTimeout(()=>res(null), ms||15000))
-    ]);
+    return await Promise.race([ p, new Promise(res => setTimeout(()=>res(null), ms||15000)) ]);
   }
 
   async function worker(){
     while (idx < targets.length){
       const my = targets[idx++];
-
       try{
         let candidates = [];
         if (my.hash) candidates = await withTimeout(driveFindByHash(my.hash), 8000);
@@ -1163,19 +1158,21 @@ btnReset?.addEventListener('click', async ()=>{
             if (picked.name) have.byName.add(picked.name);
           }
         }
-      }catch(e){ /* swallow */ }
-      finally{
+      }catch{} finally{
         done += 1;
         updateHydrateBanner(done, targets.length);
       }
     }
   }
 
-  const workers = Array.from({length: Math.min(CONCURRENCY, targets.length)}, worker);
+  // FIX: panggil worker() untuk bikin Promise, bukan pass function
+  const workers = Array.from(
+    { length: Math.min(CONCURRENCY, targets.length) },
+    () => worker()
+  );
   await Promise.all(workers);
   finishHydrateBanner();
 }
-
 
   // Hook: setelah render/pull cloud, coba hydrate diam-diam + progres
   document.addEventListener('DOMContentLoaded', async ()=>{
