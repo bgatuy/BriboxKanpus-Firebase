@@ -735,10 +735,14 @@ async function generateOriginalsOnly(selected){
 
 /********************
  *   CLOUD MIRROR   *
- *   (Histori lintas device via Drive JSON)
+ *   (Histori lintas device via Drive JSON dgn "rev")
  ********************/
 (function(){
   const HISTORY_FILE = 'FST-History.json';
+  const KEY_REV = (window.AccountStore?.nsKey ? window.AccountStore.nsKey('pdfHistoriRev') : 'pdfHistoriRev');
+
+  const getLocalRev = () => Number(localStorage.getItem(KEY_REV) || 0);
+  const setLocalRev = (rev) => localStorage.setItem(KEY_REV, String(rev || 0));
 
   function normalize(x){
     return {
@@ -752,6 +756,7 @@ async function generateOriginalsOnly(selected){
       namaUker: x.namaUker || ''
     };
   }
+
   function mergeById(baseArr, addArr){
     const map = new Map(baseArr.map(r => [normalize(r).id, normalize(r)]));
     for (const r of addArr) {
@@ -768,31 +773,51 @@ async function generateOriginalsOnly(selected){
     if (pushTimer) clearTimeout(pushTimer);
     pushTimer = setTimeout(async () => {
       try {
-        // Drive belum siap? skip
         if (!(await (window.DriveSync?.tryResume?.() || Promise.resolve(false))) && !window.DriveSync?.isLogged?.()) return;
         const local = getPdfHistori();
-        await window.DriveSync.putJson(HISTORY_FILE, local);
+        const rev = getLocalRev() || Date.now();
+        await window.DriveSync.putJson(HISTORY_FILE, { rev, data: local });
       } catch {}
-    }, 1200);
+    }, 800);
   }
 
-  // Hooks publik
+  // Push IMMEDIATE (untuk reset)
+  async function pushCloudNow(data){
+    try{
+      if (!(await (window.DriveSync?.tryResume?.() || Promise.resolve(false))) && !window.DriveSync?.isLogged?.()) return;
+      const rev = Date.now();
+      setLocalRev(rev);
+      await window.DriveSync.putJson(HISTORY_FILE, { rev, data });
+    }catch{}
+  }
+
   window.FSTSync = {
     async pullCloudToLocal(){
       try{
         const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
-        if (!ok && !window.DriveSync?.isLogged?.()) return; // belum login → skip
+        if (!ok && !window.DriveSync?.isLogged?.()) return;
         const cloud = await window.DriveSync.getJson(HISTORY_FILE);
-        if (!cloud?.data || !Array.isArray(cloud.data)) return;
+        if (!cloud) return;
 
-        const merged = mergeById(getPdfHistori(), cloud.data);
-        setPdfHistori(merged);
-        renderTabel();
+        const cloudRev = Number(cloud.rev || 0);
+        const localRev = getLocalRev();
+
+        if (cloudRev && cloudRev >= localRev){
+          const arr = Array.isArray(cloud.data) ? cloud.data : [];
+          setPdfHistori(arr);
+          setLocalRev(cloudRev);
+          renderTabel();
+        } else if (Array.isArray(cloud.data)) {
+          // local lebih baru → coba upload balik (healing)
+          await pushCloudNow(getPdfHistori());
+        }
       }catch{}
     },
-    async queuePush(){ await pushCloudDebounced(); }
+    async queuePush(){ await pushCloudDebounced(); },
+    async clearCloudNow(){ await pushCloudNow([]); }
   };
 })();
+
 
 /********************
  *   EVENTS         *
@@ -915,6 +940,26 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   loadNama();
   // Pull histori dari cloud ke lokal (merge) saat halaman dibuka
   try { await window.FSTSync?.pullCloudToLocal?.(); } catch {}
+});
+
+// ===== Reset Histori (lokal + cloud) =====
+btnReset?.addEventListener('click', async ()=>{
+  if(!confirm('Yakin reset semua histori (pdfHistori + IndexedDB)?')) return;
+
+  // bersihkan lokal
+  localStorage.removeItem('pdfHistori');
+  try { await clearIndexedDB(); } catch {}
+  if (selNama) { selNama.selectedIndex = 0; selNama.value = ''; }
+  try { localStorage.removeItem(KEY_NAMA || 'serah_ttd_nama'); } catch {}
+
+  // set rev baru & push kosong KE CLOUD segera
+  try {
+    const revKey = (window.AccountStore?.nsKey ? window.AccountStore.nsKey('pdfHistoriRev') : 'pdfHistoriRev');
+    localStorage.setItem(revKey, String(Date.now()));
+    await window.FSTSync?.clearCloudNow?.();   // butuh CLOUD MIRROR versi "rev"
+  } catch {}
+
+  renderTabel();
 });
 
 /* ===========================
@@ -1073,49 +1118,64 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   }
 
   async function hydrateMissingBlobsFromDrive(){
-    const list = getPdfHistori();
-    if (!Array.isArray(list) || !list.length) return;
+  const list = getPdfHistori();
+  if (!Array.isArray(list) || !list.length) return;
 
-    // cache map “yang sudah ada” biar nggak panggil IndexedDB berkali-kali
-    const have = await haveBlobMap();
+  const have = await haveBlobMap();
+  const targets = [];
+  for (const it of list){
+    const hash = it.contentHash || it.fileHash || null;
+    const name = it.fileName || null;
+    if (hash ? have.byHash.has(hash) : (name && have.byName.has(name))) continue;
+    targets.push({ hash, name });
+  }
+  if (!targets.length) return;
 
-    const targets = [];
-    for (const it of list){
-      const hash = it.contentHash || it.fileHash || null;
-      const name = it.fileName || null;
-      if (hash ? have.byHash.has(hash) : (name && have.byName.has(name))) continue;
-      targets.push({ hash, name });
-    }
-    if (!targets.length) return;
+  updateHydrateBanner(0, targets.length);
 
-    // tampilkan banner progres
-    updateHydrateBanner(0, targets.length);
+  // worker pool
+  const CONCURRENCY = 3;
+  let idx = 0, done = 0;
 
-    let done = 0;
-    for (const t of targets){
+  async function withTimeout(p, ms){
+    return await Promise.race([
+      p,
+      new Promise(res => setTimeout(()=>res(null), ms||15000))
+    ]);
+  }
+
+  async function worker(){
+    while (idx < targets.length){
+      const my = targets[idx++];
+
       try{
         let candidates = [];
-        if (t.hash) candidates = await driveFindByHash(t.hash);
-        if (!candidates.length && t.name) candidates = await driveFindByName(t.name);
-        if (candidates.length){
+        if (my.hash) candidates = await withTimeout(driveFindByHash(my.hash), 8000);
+        if ((!candidates || !candidates.length) && my.name) candidates = await withTimeout(driveFindByName(my.name), 8000);
+
+        if (candidates && candidates.length){
           candidates.sort((a,b)=> new Date(b.modifiedTime||0) - new Date(a.modifiedTime||0));
           const picked = candidates[0];
-          const blob = await driveDownloadBlob(picked.id);
+          const blob = await withTimeout(driveDownloadBlob(picked.id), 15000);
           if (blob){
-            await saveBlobToIndexedDB(t.hash || null, picked.name || t.name || '(tanpa-nama)', blob, null);
-            if (t.hash) have.byHash.add(t.hash);
+            await saveBlobToIndexedDB(my.hash || null, picked.name || my.name || '(tanpa-nama)', blob, null);
+            if (my.hash) have.byHash.add(my.hash);
             if (picked.name) have.byName.add(picked.name);
           }
         }
-      } catch (e){
-        console.warn('hydrate: gagal tarik dari Drive', t, e);
-      } finally {
+      }catch(e){ /* swallow */ }
+      finally{
         done += 1;
         updateHydrateBanner(done, targets.length);
       }
     }
-    finishHydrateBanner();
   }
+
+  const workers = Array.from({length: Math.min(CONCURRENCY, targets.length)}, worker);
+  await Promise.all(workers);
+  finishHydrateBanner();
+}
+
 
   // Hook: setelah render/pull cloud, coba hydrate diam-diam + progres
   document.addEventListener('DOMContentLoaded', async ()=>{
