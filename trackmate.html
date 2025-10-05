@@ -8,29 +8,46 @@
   <link rel="stylesheet" href="style.css" />
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
 
-  <!-- CONFIG -->
+  <!-- === CONFIG (local dulu, fallback ke sample) === -->
   <script src="config.local.js"></script>
   <script>if (!window.__CONFIG) document.write('<script src="config.sample.js"><\/script>');</script>
 </head>
 <body data-page="trackmate">
   <div class="dashboard">
+    <!-- Sidebar -->
     <aside class="sidebar">
-      <h2 class="logo"><img src="favicon.png" alt="Logo" class="logo-icon" />BRIBOX KANPUS</h2>
+      <h2 class="logo">
+        <img src="favicon.png" alt="Logo" class="logo-icon" />
+        BRIBOX KANPUS
+      </h2>
+
       <nav>
         <a href="trackmate.html" class="active">📋 Trackmate</a>
         <a href="appsheet.html">📋 AppSheet</a>
         <a href="formserahterima.html">📝 Form Serah Terima</a>
+
+        <!-- Parent collapsible Monthly Report -->
         <button class="nav-group" type="button"
           aria-controls="nav-monthly" aria-expanded="false"
-          onclick="const t=this,m=document.getElementById('nav-monthly');const ex=t.getAttribute('aria-expanded')==='true';t.setAttribute('aria-expanded', String(!ex));m.hidden=ex;">📅 Monthly Report</button>
+          onclick="
+            const t=this, m=document.getElementById('nav-monthly');
+            const ex=t.getAttribute('aria-expanded')==='true';
+            t.setAttribute('aria-expanded', String(!ex));
+            m.hidden=ex;
+          ">📅 Monthly Report</button>
+
+        <!-- Submenu Monthly -->
         <div id="nav-monthly" class="submenu" hidden>
           <a href="monthly-report/monthly-form.html">Monthly Report Form</a>
           <a href="monthly-report/monthly-data.html">Monthly Report Data</a>
         </div>
       </nav>
-      <div class="sidebar-credit">Web App Created By BangAtuy - 2025</div>
+      <div class="sidebar-credit" aria-label="Project credit">
+        Web App Created By BangAtuy - 2025
+      </div>
     </aside>
 
+    <!-- Main -->
     <main class="main">
       <header class="dashboard-header">
         <button class="sidebar-toggle-btn" type="button" onclick="toggleSidebar()">☰</button>
@@ -41,7 +58,7 @@
         </div>
       </header>
 
-      <!-- Drive connect hint -->
+      <!-- Drive connect hint (muncul hanya jika silent connect gagal) -->
       <div id="driveConnectBar" class="drive-connect-bar" style="display:none; margin-bottom:12px">
         <div class="card" style="display:flex; gap:10px; align-items:center; padding:10px;">
           <span class="material-icons" aria-hidden="true">cloud_off</span>
@@ -149,22 +166,40 @@
     </main>
   </div>
 
-  <!-- Pref toggles -->
+  <!-- Preference toggles -->
   <script>
-    if (localStorage.getItem('darkMode') === 'true') document.body.classList.add('dark-mode');
+    if (localStorage.getItem('darkMode') === 'true') {
+      document.body.classList.add('dark-mode');
+    }
     document.addEventListener('DOMContentLoaded', () => {
-      const b=document.getElementById('toggleModeBtn'); if(!b) return;
-      const isDark=document.body.classList.contains('dark-mode');
-      b.textContent=isDark?'☀️':'🌙'; b.setAttribute('aria-pressed', String(isDark));
+      const toggleBtn = document.getElementById('toggleModeBtn');
+      if (toggleBtn) {
+        const isDark = document.body.classList.contains('dark-mode');
+        toggleBtn.textContent = isDark ? '☀️' : '🌙';
+        toggleBtn.setAttribute('aria-pressed', String(isDark));
+      }
     });
-    function toggleDarkMode(){ const isDark=document.body.classList.toggle('dark-mode'); localStorage.setItem('darkMode', isDark);
-      const b=document.getElementById('toggleModeBtn'); if(b){ b.textContent=isDark?'☀️':'🌙'; b.setAttribute('aria-pressed', String(isDark));}}
-    function toggleSidebar(){ document.querySelector('.sidebar')?.classList.toggle('hidden'); }
+    function toggleDarkMode() {
+      const isDark = document.body.classList.toggle('dark-mode');
+      localStorage.setItem('darkMode', isDark);
+      const btn = document.getElementById('toggleModeBtn');
+      if (btn) {
+        btn.textContent = isDark ? '☀️' : '🌙';
+        btn.setAttribute('aria-pressed', String(isDark));
+      }
+    }
+    function toggleSidebar() {
+      document.querySelector('.sidebar')?.classList.toggle('hidden');
+    }
   </script>
 
   <!-- PDF.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
-  <script> if (window.pdfjsLib && !pdfjsLib.GlobalWorkerOptions.workerSrc) { pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js'; } </script>
+  <script>
+    if (window.pdfjsLib && (!pdfjsLib.GlobalWorkerOptions.workerSrc || pdfjsLib.GlobalWorkerOptions.workerSrc === '')) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+    }
+  </script>
 
   <!-- Auth + Guard -->
   <script defer src="auth.js"></script>
@@ -193,7 +228,7 @@
     });
   </script>
 
-  <!-- App logic -->
+  <!-- === App logic === -->
   <script src="trackmate.js"></script>
 </body>
 </html>
