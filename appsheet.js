@@ -367,6 +367,27 @@ copyBtn?.addEventListener("click", async () => {
 
     await savePdfToIndexedDB(file, undefined, { contentHash }); // simpan blob + hash
 
+    // === Tulis manifest per-akun ke Drive (supaya device lain langsung lihat) ===
+try {
+  // ambil array histori terkini (pakai namespace jika ada)
+  const arr = (window.AccountStore?.nsKey)
+    ? JSON.parse(localStorage.getItem(window.AccountStore.nsKey('pdfHistori')) || '[]')
+    : JSON.parse(localStorage.getItem('pdfHistori') || '[]');
+
+  // tentukan UID aktif (fallback 'anon')
+  const uid = (window.DriveSync?.getUser?.()?.uid)
+           || (window.Auth?.user?.uid)
+           || (window.Auth?.currentUser?.()?.uid)
+           || 'anon';
+
+  const name = `.bribox_histori__${uid}.json`;
+  await window.DriveSync?.putTextFile?.(name, JSON.stringify(arr), 'application/json');
+  // (opsional) kasih tahu user diam-diam atau abaikan saja
+} catch (e) {
+  console.warn('push manifest gagal:', e);
+}
+
+
     // === Drive: upload langsung kalau siap, kalau tidak antri
     try {
       const res = await (window.DriveQueue?.enqueueOrUpload?.(file, contentHash));

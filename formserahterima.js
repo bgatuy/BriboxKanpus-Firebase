@@ -791,28 +791,67 @@ async function generateOriginalsOnly(selected){
     }catch{}
   }
 
+  function getUidOrAnon(){
+  try {
+    return (window.DriveSync?.getUser?.()?.uid)
+        || (window.Auth?.user?.uid)
+        || (window.Auth?.currentUser?.()?.uid)
+        || 'anon';
+  } catch { return 'anon'; }
+}
+function manifestName(){ return `.bribox_histori__${getUidOrAnon()}.json`; }
+
+
   window.FSTSync = {
     async pullCloudToLocal(){
-      try{
-        const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
-        if (!ok && !window.DriveSync?.isLogged?.()) return;
-        const cloud = await window.DriveSync.getJson(HISTORY_FILE);
-        if (!cloud) return;
+  try{
+    const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+    if (!ok && !window.DriveSync?.isLogged?.()) return;
 
-        const cloudRev = Number(cloud.rev || 0);
-        const localRev = getLocalRev();
+    // A) Coba manifest per-akun (Trackmate)
+    let manifestArr = null;
+    try {
+      const txt = await window.DriveSync?.getTextFileByName?.(manifestName());
+      if (txt) {
+        const arr = JSON.parse(txt);
+        if (Array.isArray(arr)) manifestArr = arr;
+      }
+    } catch {}
 
-        if (cloudRev && cloudRev >= localRev){
-          const arr = Array.isArray(cloud.data) ? cloud.data : [];
-          setPdfHistori(arr);
-          setLocalRev(cloudRev);
-          renderTabel();
-        } else if (Array.isArray(cloud.data)) {
-          // local lebih baru → coba upload balik (healing)
-          await pushCloudNow(getPdfHistori());
-        }
-      }catch{}
-    },
+    if (manifestArr) {
+      // langsung pakai data manifest Trackmate
+      setPdfHistori(manifestArr);
+      renderTabel();
+      return;
+    }
+
+    // B) Fallback: file lama FST-History.json (pakai rev)
+    const cloud = await window.DriveSync.getJson('FST-History.json');
+    if (!cloud) return;
+
+    const cloudRev = Number(cloud.rev || 0);
+    const localRev = Number(localStorage.getItem(window.AccountStore?.nsKey
+                        ? window.AccountStore.nsKey('pdfHistoriRev') : 'pdfHistoriRev') || 0);
+
+    if (cloudRev && cloudRev >= localRev){
+      const arr = Array.isArray(cloud.data) ? cloud.data : [];
+      setPdfHistori(arr);
+      if (window.AccountStore?.setRev) window.AccountStore.setRev(cloudRev);
+      else localStorage.setItem('pdfHistoriRev', String(cloudRev));
+      renderTabel();
+    } else if (Array.isArray(cloud.data)) {
+      // local lebih baru → heal cloud lama
+      try {
+        const data = getPdfHistori();
+        const rev = Date.now();
+        if (window.AccountStore?.setRev) window.AccountStore.setRev(rev);
+        else localStorage.setItem('pdfHistoriRev', String(rev));
+        await window.DriveSync.putJson('FST-History.json', { rev, data });
+      } catch {}
+    }
+  }catch{}
+},
+
     async queuePush(){ await pushCloudDebounced(); },
     async clearCloudNow(){ await pushCloudNow([]); }
   };
@@ -1121,6 +1160,17 @@ btnReset?.addEventListener('click', async ()=>{
   const list = getPdfHistori();
   if (!Array.isArray(list) || !list.length) return;
 
+  // ⛔ kalau Drive belum siap, jangan tampilkan progres yang menyesatkan
+  try {
+    const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+    if (!ok && !window.DriveSync?.isLogged?.()) {
+      // tidak login → jangan tampilkan banner progres
+      const banner = document.getElementById('hydrateBanner');
+      if (banner) banner.remove();
+      return;
+    }
+  } catch {}
+
   const have = await haveBlobMap();
   const targets = [];
   for (const it of list){
@@ -1143,6 +1193,7 @@ btnReset?.addEventListener('click', async ()=>{
   async function worker(){
     while (idx < targets.length){
       const my = targets[idx++];
+
       try{
         let candidates = [];
         if (my.hash) candidates = await withTimeout(driveFindByHash(my.hash), 8000);
@@ -1158,14 +1209,15 @@ btnReset?.addEventListener('click', async ()=>{
             if (picked.name) have.byName.add(picked.name);
           }
         }
-      }catch{} finally{
+      } catch {}
+      finally {
         done += 1;
         updateHydrateBanner(done, targets.length);
       }
     }
   }
 
-  // FIX: panggil worker() untuk bikin Promise, bukan pass function
+  // ⚠️ FIX: panggil worker(), bukan pass referensi fungsi
   const workers = Array.from(
     { length: Math.min(CONCURRENCY, targets.length) },
     () => worker()
@@ -1173,6 +1225,7 @@ btnReset?.addEventListener('click', async ()=>{
   await Promise.all(workers);
   finishHydrateBanner();
 }
+
 
   // Hook: setelah render/pull cloud, coba hydrate diam-diam + progres
   document.addEventListener('DOMContentLoaded', async ()=>{
