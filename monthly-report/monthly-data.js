@@ -534,9 +534,6 @@
   btnExportXlsx && btnExportXlsx.addEventListener('click', exportXLSX);
   btnReset && btnReset.addEventListener('click', resetMonth);
 
-  // ===== init: render lokal dulu, lalu tarik dari Drive → merge → render ulang
-  applyFilters();
-  // ===== init: render lokal dulu, lalu tarik dari Drive → merge → render ulang
 document.addEventListener('DOMContentLoaded', async () => {
   applyFilters?.(); // kalau kamu punya
 

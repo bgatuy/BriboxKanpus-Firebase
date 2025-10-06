@@ -981,18 +981,6 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   try { await window.FSTSync?.pullCloudToLocal?.(); } catch {}
 });
 
-const uid = Auth.getUid();
-const catKey = `PdfCatalog__${uid}`;
-const cat = JSON.parse(localStorage.getItem(catKey) || '{}');
-const meta = cat[entry.sha256];   // pastikan entry.sha256 ada di datamu
-
-if (!meta?.fileId) {
-  alert('PDF asli belum diindeks di akun ini. Silakan Copy di Trackmate/AppSheet.');
-  return;
-}
-
-const pdfBlob = await DriveSync.fetchPdfBlob(meta.fileId);
-
 // ===== Reset Histori (lokal + cloud) =====
 btnReset?.addEventListener('click', async ()=>{
   if(!confirm('Yakin reset semua histori (pdfHistori + IndexedDB)?')) return;
@@ -1150,14 +1138,17 @@ btnReset?.addEventListener('click', async ()=>{
     return json.files || [];
   }
   async function driveFindByHash(hash){
-    if (!hash) return [];
-    const q = `mimeType='application/pdf' and trashed=false and appProperties has { key='contentHash' and value='${esc(hash)}' }`;
-    return await driveSearch(q);
-  }
-  async function driveFindByName(name){
-    if (!name) return [];
-    const q = `mimeType='application/pdf' and trashed=false and name='${esc(name)}'`;
-    return await driveSearch(q);
+  if (!hash) return [];
+  // cari berdasarkan NAMA FILE hash.pdf  (idempoten kita)
+  const q = `mimeType='application/pdf' and trashed=false and name='${esc(hash)}.pdf'`;
+  return await driveSearch(q);
+}
+
+async function driveFindByName(name){
+  if (!name) return [];
+  // tetap pertahankan pencarian nama asli sebagai fallback
+  const q = `mimeType='application/pdf' and trashed=false and name='${esc(name)}'`;
+  return await driveSearch(q);
   }
   async function driveDownloadBlob(fileId){
     const token = await getToken(); if (!token) return null;
@@ -1170,6 +1161,13 @@ btnReset?.addEventListener('click', async ()=>{
 
   async function hydrateMissingBlobsFromDrive(){
   const list = getPdfHistori();
+  // coba pakai katalog per-akun dulu → langsung tau fileId
+let catMap = {};
+try {
+  const uid = (window.Auth?.getUid?.() || 'anon');
+  catMap = JSON.parse(localStorage.getItem(`PdfCatalog__${uid}`) || '{}'); // { sha256: {fileId,...} }
+} catch {}
+
   if (!Array.isArray(list) || !list.length) return;
 
   // ⛔ kalau Drive belum siap, jangan tampilkan progres yang menyesatkan
@@ -1203,31 +1201,47 @@ btnReset?.addEventListener('click', async ()=>{
   }
 
   async function worker(){
-    while (idx < targets.length){
-      const my = targets[idx++];
+  while (idx < targets.length){
+    const my = targets[idx++];
 
-      try{
-        let candidates = [];
-        if (my.hash) candidates = await withTimeout(driveFindByHash(my.hash), 8000);
-        if ((!candidates || !candidates.length) && my.name) candidates = await withTimeout(driveFindByName(my.name), 8000);
-
-        if (candidates && candidates.length){
-          candidates.sort((a,b)=> new Date(b.modifiedTime||0) - new Date(a.modifiedTime||0));
-          const picked = candidates[0];
-          const blob = await withTimeout(driveDownloadBlob(picked.id), 15000);
-          if (blob){
-            await saveBlobToIndexedDB(my.hash || null, picked.name || my.name || '(tanpa-nama)', blob, null);
-            if (my.hash) have.byHash.add(my.hash);
-            if (picked.name) have.byName.add(picked.name);
-          }
+    try{
+      // 1) FAST-PATH: pakai katalog per-akun (langsung by fileId)
+      if (my.hash && catMap[my.hash]?.fileId) {
+        const blob = await withTimeout(driveDownloadBlob(catMap[my.hash].fileId), 15000);
+        if (blob){
+          await saveBlobToIndexedDB(my.hash, `${my.hash}.pdf`, blob, null);
+          have.byHash.add(my.hash);
+          if (my.name) have.byName.add(my.name);
+          continue; // lanjut item berikutnya; counter tetap di finally
         }
-      } catch {}
-      finally {
-        done += 1;
-        updateHydrateBanner(done, targets.length);
       }
+
+      // 2) CARI di Drive
+      let candidates = [];
+      if (my.hash) candidates = await withTimeout(driveFindByHash(my.hash), 8000);
+      if ((!candidates || !candidates.length) && my.name) {
+        candidates = await withTimeout(driveFindByName(my.name), 8000);
+      }
+
+      // 3) UNDUH kandidat terbaru
+      if (candidates && candidates.length){
+        candidates.sort((a,b)=> new Date(b.modifiedTime||0) - new Date(a.modifiedTime||0));
+        const picked = candidates[0];
+        const blob = await withTimeout(driveDownloadBlob(picked.id), 15000);
+        if (blob){
+          await saveBlobToIndexedDB(my.hash || null, picked.name || my.name || '(tanpa-nama)', blob, null);
+          if (my.hash) have.byHash.add(my.hash);
+          if (picked.name) have.byName.add(picked.name);
+        }
+      }
+    } catch {
+      // noop
+    } finally {
+      done += 1;
+      updateHydrateBanner(done, targets.length);
     }
   }
+}
 
   // ⚠️ FIX: panggil worker(), bukan pass referensi fungsi
   const workers = Array.from(

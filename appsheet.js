@@ -321,24 +321,9 @@ pdfInput?.addEventListener("change", async () => {
   generateLaporan();
 });
 
-// ==== AppSheet: handler tombol "Copy" ====
-async function appsheetCopyFile(file) {
-  const uid = Auth.getUid();
-  if (uid === 'anon') { alert('Harus login.'); return; }
-  const sha256 = await sha256File(file);
-  const { fileId, deduped } = await DriveSync.savePdfByHash(file, sha256);
-
-  const key = `PdfCatalog__${uid}`;
-  const map = JSON.parse(localStorage.getItem(key) || '{}');
-  map[sha256] = { fileId, name:file.name, size:file.size, mime:file.type, at: Date.now() };
-  localStorage.setItem(key, JSON.stringify(map));
-
-  toast?.(deduped ? 'Pakai file Drive (no re-upload)' : 'PDF diunggah ke Drive');
-}
-
 /* ========= Copy & Save ========= */
 copyBtn?.addEventListener("click", async () => {
-  // Copy ke clipboard (prefer async API)
+  // 1) copy ke clipboard
   const text = output.textContent || '';
   try {
     if (navigator.clipboard?.writeText) {
@@ -354,68 +339,79 @@ copyBtn?.addEventListener("click", async () => {
   }
   setTimeout(() => (copyBtn.textContent = "Copy"), 1500);
 
-  // Simpan histori + blob + antre/upload Drive
+  // 2) validasi file aktif
   const file = window.currentFile;
   if (!file || !currentTanggalRaw) return;
 
-  // === HASH BARU ===
+  // 3) hash isi file (identitas)
   const contentHash = await sha256File(file);
 
-  const namaUkerBersih = stripLeadingColon(unitKerja) || '-';
-  const histori = JSON.parse(localStorage.getItem("pdfHistori")) || [];
+  // 4) konteks user + histori per-akun
+  const uid = (window.Auth?.getUid?.() || 'anon');
+  if (uid === 'anon') { alert('Harus login dulu.'); return; }
+  const histKey = `pdfHistori::${uid}`;
+  const histori = JSON.parse(localStorage.getItem(histKey) || '[]');
 
-  // DEDUPE BERDASARKAN HASH (file identik saja yang diblokir)
-  const isIdentik = histori.some(x => x.contentHash === contentHash);
-
-  if (!isIdentik) {
-    const rec = {
-      namaUker: namaUkerBersih,
-      tanggalPekerjaan: currentTanggalRaw,
-      fileName: file.name,
-      contentHash,                          // identitas isi
-      size: file.size,
-      uploadedAt: new Date().toISOString(),
-      module: 'appsheet'
-    };
-    histori.push(rec);
-    localStorage.setItem("pdfHistori", JSON.stringify(histori));
-
-    await savePdfToIndexedDB(file, undefined, { contentHash }); // simpan blob + hash
-
-    // === Tulis manifest per-akun ke Drive (supaya device lain langsung lihat) ===
-try {
-  // ambil array histori terkini (pakai namespace jika ada)
-  const arr = (window.AccountStore?.nsKey)
-    ? JSON.parse(localStorage.getItem(window.AccountStore.nsKey('pdfHistori')) || '[]')
-    : JSON.parse(localStorage.getItem('pdfHistori') || '[]');
-
-  // tentukan UID aktif (fallback 'anon')
-  const uid = (window.DriveSync?.getUser?.()?.uid)
-           || (window.Auth?.user?.uid)
-           || (window.Auth?.currentUser?.()?.uid)
-           || 'anon';
-
-  const name = `.bribox_histori__${uid}.json`;
-  await window.DriveSync?.putTextFile?.(name, JSON.stringify(arr), 'application/json');
-  // (opsional) kasih tahu user diam-diam atau abaikan saja
-} catch (e) {
-  console.warn('push manifest gagal:', e);
-}
-
-
-    // === Drive: upload langsung kalau siap, kalau tidak antri
-    try {
-      const res = await (window.DriveQueue?.enqueueOrUpload?.(file, contentHash));
-      if (res?.uploaded) {
-        showToast('✔ tersimpan & disinkron ke Drive.');
-      } else {
-        showToast('⏳ tersimpan & ditaruh di antrean Drive.');
-      }
-    } catch (e) {
-      console.warn('enqueue/upload drive gagal:', e);
-      showToast('✔ tersimpan lokal. Hubungkan Drive untuk sinkron.');
+  // 5) Drive: pastikan login, upload idempoten, simpan katalog untuk FST
+  try {
+    const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+    if (!ok && !window.DriveSync?.isLogged?.()) {
+      alert('Silakan klik "Connect Google Drive" dulu.');
+      return;
     }
-  } else {
-    showToast(`ℹ sudah ada di histori.`);
+
+    // /Bribox Kanpus/pdfs/<sha256>.pdf (idempoten)
+    const { fileId, deduped } = await DriveSync.savePdfByHash(file, contentHash);
+
+    // simpan mapping sha256 -> fileId (dipakai FST)
+    const catKey = `PdfCatalog__${uid}`;
+    const catMap = JSON.parse(localStorage.getItem(catKey) || '{}');
+    catMap[contentHash] = {
+      fileId,
+      name: file.name,
+      size: file.size,
+      mime: file.type,
+      at: Date.now()
+    };
+    localStorage.setItem(catKey, JSON.stringify(catMap));
+
+    showToast(deduped ? '☁️ Pakai file yang sudah ada di Drive' : '☁️ PDF diunggah ke Drive');
+  } catch (e) {
+    console.warn('[AppSheet] Drive idempoten gagal:', e);
+    // lanjutkan proses lokal supaya histori tetap tersimpan
   }
+
+  // 6) dedupe histori berdasarkan hash
+  const isIdentik = histori.some(x => x.contentHash === contentHash);
+  if (isIdentik) { showToast('ℹ sudah ada di histori.'); return; }
+
+  // 7) tambah record ke histori per-akun
+  const rec = {
+    namaUker: stripLeadingColon(unitKerja) || '-',
+    tanggalPekerjaan: currentTanggalRaw,
+    fileName: file.name,
+    contentHash,            // identitas isi
+    size: file.size,
+    uploadedAt: new Date().toISOString(),
+    module: 'appsheet'
+  };
+  histori.push(rec);
+  localStorage.setItem(histKey, JSON.stringify(histori));
+  // alias lama (opsional) — menjaga kompat modul lain yang masih baca "pdfHistori"
+  localStorage.setItem('pdfHistori', JSON.stringify(histori));
+
+  // 8) simpan blob lokal (IndexedDB) untuk akses offline
+  try { await savePdfToIndexedDB(file, undefined, { contentHash }); }
+  catch (e) { console.warn('IDB gagal:', e); }
+
+  // 9) tulis manifest per-akun ke Drive (lintas device)
+  try {
+    const name = `.bribox_histori__${uid}.json`;
+    await window.DriveSync?.putJson?.(name, histori);
+  } catch (e) {
+    console.warn('push manifest gagal:', e);
+  }
+
+  showToast('✔ tersimpan & disinkron.', 3000);
 });
+

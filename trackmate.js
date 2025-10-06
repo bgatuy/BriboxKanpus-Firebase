@@ -694,6 +694,42 @@ copyBtn?.addEventListener("click", async () => {
       uploadedAt: new Date().toISOString()
     };
 
+    // === Drive idempoten + katalog per-akun ===
+try {
+  const uid = (window.Auth?.getUid?.() || 'anon');
+  if (uid === 'anon') {
+    alert('Harus login dulu.'); 
+    return;
+  }
+
+  // Pastikan token Drive
+  const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+  if (!ok && !window.DriveSync?.isLogged?.()) {
+    alert('Silakan klik "Connect Google Drive" dulu.');
+    return;
+  }
+
+  // Upload idempoten: /Bribox Kanpus/pdfs/<sha256>.pdf
+  const { fileId, deduped } = await DriveSync.savePdfByHash(file, contentHash);
+
+  // Simpan mapping hash → fileId (dipakai FST)
+  const catKey = `PdfCatalog__${uid}`;
+  const catMap = JSON.parse(localStorage.getItem(catKey) || '{}');
+  catMap[contentHash] = {
+    fileId,
+    name: file.name,
+    size: file.size,
+    mime: file.type,
+    at: Date.now()
+  };
+  localStorage.setItem(catKey, JSON.stringify(catMap));
+
+  showToast(deduped ? '☁️ Pakai file yang sudah ada di Drive' : '☁️ PDF diunggah ke Drive', 2500, 'success');
+} catch (e) {
+  console.warn('[Trackmate] Drive idempoten gagal:', e);
+  // jangan return; lanjut simpan histori lokal supaya UX tetap jalan
+}
+
     // duplikat?
     const histori = readHistoriSafe();
     const exists = histori.length > 0 && histori.some(r => isDuplicateRow(r, file, contentHash));
@@ -735,28 +771,6 @@ copyBtn?.addEventListener("click", async () => {
     showToast(`❌ Error: ${err?.message || err}`, 4500, "warn");
   }
 });
-
-// ==== Trackmate: handler tombol "Copy" ====
-// Prasyarat: ada util sha256File(file) yang mengembalikan hash konsisten.
-async function handleCopyFile(file) {
-  const uid = Auth.getUid();
-  if (uid === 'anon') { alert('Harus login.'); return; }
-
-  // 1) hitung hash
-  const sha256 = await sha256File(file);
-
-  // 2) simpan ke Drive secara idempoten (1 file per hash lintas-device)
-  const { fileId, deduped } = await DriveSync.savePdfByHash(file, sha256);
-
-  // 3) katalog lokal per-akun (ganti dengan storage kamu sendiri bila sudah ada)
-  const key = `PdfCatalog__${uid}`;
-  const map = JSON.parse(localStorage.getItem(key) || '{}');
-  map[sha256] = { fileId, name:file.name, size:file.size, mime:file.type, at: Date.now() };
-  localStorage.setItem(key, JSON.stringify(map));
-
-  // 4) umpan balik
-  toast?.(deduped ? 'Pakai file yang sudah ada di Drive (no re-upload)' : 'PDF diunggah ke Drive');
-}
 
 // ---------- Toast util ----------
 function showToast(message, duration = 3000, variant = "success") {
