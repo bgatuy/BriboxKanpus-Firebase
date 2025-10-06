@@ -1,52 +1,53 @@
-(function(){
+(function () {
   const STORAGE_KEY = 'monthlyReports';
 
   /* ============== USER-SCOPE (per akun) ============== */
   const LS = {
-    getItem(k){ return (window.AccountNS?.getItem?.(k)) ?? localStorage.getItem(k); },
-    setItem(k,v){
+    getItem(k) { return (window.AccountNS?.getItem?.(k)) ?? localStorage.getItem(k); },
+    setItem(k, v) {
       if (window.AccountNS?.setItem) window.AccountNS.setItem(k, v);
       else localStorage.setItem(k, v);
     }
   };
-  function loadReports(){
+
+  function loadReports() {
     try { return JSON.parse(LS.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
   }
-  function saveReports(arr){
+  function saveReports(arr) {
     const safe = JSON.stringify(Array.isArray(arr) ? arr : []);
     LS.setItem(STORAGE_KEY, safe);
-    // push ke Drive (debounced) supaya device lain kebagian
-    if (window.MonthlySync?.queuePush) window.MonthlySync.queuePush(async ()=>JSON.parse(LS.getItem(STORAGE_KEY)||'[]'));
+    // dorong ke Drive (debounced) supaya device lain kebagian
+    MonthlySync.queuePush(monthlyGetLocal);
   }
 
   /* ========= SIDEBAR ========= */
-  const sidebar   = document.querySelector('.sidebar');
-  const overlay   = document.getElementById('sidebarOverlay') || document.querySelector('.sidebar-overlay');
+  const sidebar = document.querySelector('.sidebar');
+  const overlay = document.getElementById('sidebarOverlay') || document.querySelector('.sidebar-overlay');
   const sidebarLinks = document.querySelectorAll('.sidebar a');
 
-  function openSidebar() { sidebar.classList.add('visible'); overlay?.classList.add('show'); document.body.style.overflow = 'hidden'; }
-  function closeSidebar() { sidebar.classList.remove('visible'); overlay?.classList.remove('show'); document.body.style.overflow = ''; }
-  function toggleSidebar() { sidebar.classList.contains('visible') ? closeSidebar() : openSidebar(); }
+  function openSidebar() { sidebar?.classList.add('visible'); overlay?.classList.add('show'); document.body.style.overflow = 'hidden'; }
+  function closeSidebar() { sidebar?.classList.remove('visible'); overlay?.classList.remove('show'); document.body.style.overflow = ''; }
+  function toggleSidebar() { sidebar?.classList.contains('visible') ? closeSidebar() : openSidebar(); }
   window.toggleSidebar = toggleSidebar;
 
   overlay?.addEventListener('click', closeSidebar);
   document.addEventListener('click', (e) => {
     const isMobile = window.matchMedia('(max-width: 768px)').matches;
-    if (!isMobile) return;
+    if (!isMobile || !sidebar) return;
     const clickInsideSidebar = sidebar.contains(e.target);
     const clickOnToggle = e.target.closest('.sidebar-toggle-btn');
     if (sidebar.classList.contains('visible') && !clickInsideSidebar && !clickOnToggle) closeSidebar();
   });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && sidebar.classList.contains('visible')) closeSidebar(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && sidebar?.classList.contains('visible')) closeSidebar(); });
   sidebarLinks.forEach(a => a.addEventListener('click', closeSidebar));
 
   document.addEventListener('DOMContentLoaded', function () {
-    const title = document.querySelector('.dashboard-header h1')?.textContent?.toLowerCase() || "";
+    const title = document.querySelector('.dashboard-header h1')?.textContent?.toLowerCase() || '';
     const body = document.body;
-    if (title.includes('trackmate'))      body.setAttribute('data-page', 'trackmate');
-    else if (title.includes('appsheet'))  body.setAttribute('data-page', 'appsheet');
-    else if (title.includes('serah'))     body.setAttribute('data-page', 'serah');
-    else if (title.includes('merge'))     body.setAttribute('data-page', 'merge');
+    if (title.includes('trackmate')) body.setAttribute('data-page', 'trackmate');
+    else if (title.includes('appsheet')) body.setAttribute('data-page', 'appsheet');
+    else if (title.includes('serah')) body.setAttribute('data-page', 'serah');
+    else if (title.includes('merge')) body.setAttribute('data-page', 'merge');
   });
 
   // ===== elem refs
@@ -76,99 +77,157 @@
 
   // ===== utils
   const today = new Date();
-  const pad = (n)=> String(n).padStart(2,'0');
-  const toHHMM = (m)=>{
-    m = Math.max(0, Math.round(m||0));
-    const h = Math.floor(m/60); const mm = m%60; return `${h}:${pad(mm)}`;
+  const pad = (n) => String(n).padStart(2, '0');
+  const toHHMM = (m) => {
+    m = Math.max(0, Math.round(m || 0));
+    const h = Math.floor(m / 60); const mm = m % 60; return `${h}:${pad(mm)}`;
   };
-  const parseTimeToMin = (t)=>{
-    if(!t) return null;
-    const [h,m] = t.split(':').map(Number);
-    if(Number.isNaN(h)||Number.isNaN(m)) return null;
-    return h*60+m;
+  const parseTimeToMin = (t) => {
+    if (!t) return null;
+    const [h, m] = t.split(':').map(Number);
+    if (Number.isNaN(h) || Number.isNaN(m)) return null;
+    return h * 60 + m;
   };
-  const minToTimeStr = (m)=> `${pad(Math.floor((m%1440)/60))}:${pad(Math.floor(m%60))}`;
-  const defaultMonth = () => `${today.getFullYear()}-${pad(today.getMonth()+1)}`;
-  const defaultDate  = () => `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+  const minToTimeStr = (m) => `${pad(Math.floor((m % 1440) / 60))}:${pad(Math.floor(m % 60))}`;
+  const defaultMonth = () => `${today.getFullYear()}-${pad(today.getMonth() + 1)}`;
+  const defaultDate = () => `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
 
-  function refreshCountForMonth(month){
+  function refreshCountForMonth(month) {
     if (!countBulan) return;
     try {
       const all = loadReports();
-      countBulan.textContent = all.filter(x=>x.month===month).length;
+      countBulan.textContent = all.filter(x => x.month === month).length;
     } catch { countBulan.textContent = '0'; }
   }
-  function setLinkTargets(month){
+  function setLinkTargets(month) {
     const href = `monthly-data.html?month=${encodeURIComponent(month)}`;
     if (linkData) linkData.href = href;
     if (btnLihatBulan) btnLihatBulan.href = href;
   }
-  function showToastMsg(msg){
-    if(!toast) return;
-    toast.textContent = msg; toast.classList.add('show'); setTimeout(()=> toast.classList.remove('show'), 1600);
+  function showToastMsg(msg) {
+    if (!toast) return;
+    toast.textContent = msg; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 1600);
   }
 
   // ===== Dropdown teknisi (STATIS)
-  function populateTeknisi(){
+  function populateTeknisi() {
     if (!teknisi) return;
     const list = [
-      "Mochammad Fathur Rachman",
-      "Muhammad Farhan Baihaqi",
-      "Halviansyah Wildana",
-      "Dafa Farabi",
-      "Azriel Raja Simamora",
-      "Dimas Pujianto"
+      'Mochammad Fathur Rachman',
+      'Muhammad Farhan Baihaqi',
+      'Halviansyah Wildana',
+      'Dafa Farabi',
+      'Azriel Raja Simamora',
+      'Dimas Pujianto'
     ];
-    if (!teknisi.options.length || teknisi.firstElementChild?.value === "") {
+    if (!teknisi.options.length || teknisi.firstElementChild?.value === '') {
       teknisi.innerHTML = ['<option value="">-- Pilih Nama --</option>']
-        .concat(list.map(n=>`<option value="${n}">${n}</option>`)).join('');
+        .concat(list.map(n => `<option value="${n}">${n}</option>`)).join('');
     }
   }
 
   // ===== auto fields
-  function computeAutoFields(){
+  function computeAutoFields() {
     const berangkat = parseTimeToMin(jamBerangkat.value);
-    if(berangkat!=null){
+    if (berangkat != null) {
       const masuk = (berangkat - 5 + 1440) % 1440; // -5 menit, wrap 24h
       jamMasuk.value = minToTimeStr(masuk);
     } else { jamMasuk.value = ''; }
 
     const tiba = parseTimeToMin(jamTiba.value);
-    if(berangkat!=null && tiba!=null){
+    if (berangkat != null && tiba != null) {
       const tempuh = (tiba - berangkat + 1440) % 1440;
       waktuTempuh.value = toHHMM(tempuh);
     } else { waktuTempuh.value = '0:00'; }
 
     const mulai = parseTimeToMin(jamMulai.value);
     const selesai = parseTimeToMin(jamSelesai.value);
-    if(mulai!=null && selesai!=null){
+    if (mulai != null && selesai != null) {
       const dur = (selesai - mulai + 1440) % 1440;
       durasiPenyelesaian.value = toHHMM(dur);
     } else { durasiPenyelesaian.value = '0:00'; }
   }
 
   // ===== Cloud mirror adapters (Drive JSON) – per akun via AccountNS di LS
-  async function monthlyGetLocal(){
+  async function monthlyGetLocal() {
     try { return JSON.parse(LS.getItem(STORAGE_KEY) || '[]'); }
     catch { return []; }
   }
-  async function monthlySetLocal(arr){
+  async function monthlySetLocal(arr) {
     LS.setItem(STORAGE_KEY, JSON.stringify(arr || []));
   }
 
-  // ===== init
+  // ===== MonthlySync local (pakai Drive JSON per-akun)
+  const MonthlySync = window.MonthlySync = window.MonthlySync || {};
+  MonthlySync.fileName = () => `.monthly_data__${Auth.getUid()}.json`;
+
+  // pull: ambil JSON dari Drive → merge ke lokal → callback
+  MonthlySync.pull = async (getLocal, setLocal, onAfter) => {
+    try {
+      const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+      if (!ok && !window.DriveSync?.isLogged?.()) return;
+      const cloud = await window.DriveSync?.getJson?.(MonthlySync.fileName());
+      if (!cloud?.data || !Array.isArray(cloud.data)) { onAfter && onAfter(); return; }
+
+      // merge: last-write-wins by createdAt/updatedAt kalau ada id sama
+      const base = await getLocal();
+      const map = new Map();
+      const norm = (x) => {
+        const id = x.id || [x.month, x.date, x.teknisi, x.createdAt].filter(Boolean).join('|');
+        return { id, ...x };
+      };
+      [...base, ...cloud.data].forEach((r) => {
+        const n = norm(r);
+        const ex = map.get(n.id);
+        if (!ex) map.set(n.id, n);
+        else {
+          const tNew = new Date(n.updatedAt || n.createdAt || 0).getTime();
+          const tOld = new Date(ex.updatedAt || ex.createdAt || 0).getTime();
+          if (tNew >= tOld) map.set(n.id, n);
+        }
+      });
+      await setLocal(Array.from(map.values()));
+      onAfter && onAfter();
+    } catch (e) {
+      console.warn('[MonthlySync.pull] gagal:', e);
+      onAfter && onAfter();
+    }
+  };
+
+  // queuePush: debounce putJson ke Drive
+  (function () {
+    let t = null;
+    MonthlySync.queuePush = function (getLocal) {
+      clearTimeout(t);
+      t = setTimeout(async () => {
+        try {
+          const uid = Auth.getUid();
+          if (!uid || uid === 'anon') return;
+          const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+          if (!ok && !window.DriveSync?.isLogged?.()) return;
+          const rows = await getLocal();
+          if (!Array.isArray(rows)) return;
+          await window.DriveSync?.putJson?.(MonthlySync.fileName(), rows);
+        } catch (e) {
+          console.warn('[MonthlySync.queuePush] gagal:', e);
+        }
+      }, 800);
+    };
+  })();
+
+  // ===== init nilai form
   bulan.value = defaultMonth();
   tanggal.value = defaultDate();
   setLinkTargets(bulan.value);
   refreshCountForMonth(bulan.value);
   populateTeknisi();
 
-  [jamBerangkat,jamTiba,jamMulai,jamSelesai].forEach(inp=>{
-    ['input','change'].forEach(ev => inp.addEventListener(ev, computeAutoFields));
+  [jamBerangkat, jamTiba, jamMulai, jamSelesai].forEach(inp => {
+    ['input', 'change'].forEach(ev => inp?.addEventListener(ev, computeAutoFields));
   });
   computeAutoFields();
 
-  bulan.addEventListener('change', ()=>{
+  bulan.addEventListener('change', () => {
     setLinkTargets(bulan.value);
     refreshCountForMonth(bulan.value);
   });
@@ -176,27 +235,25 @@
   // Tarik data cloud → merge ke lokal → refresh counter (lintas device)
   (async () => {
     try {
-      if (window.MonthlySync?.pull) {
-        await window.MonthlySync.pull(monthlyGetLocal, monthlySetLocal, () => {
-          refreshCountForMonth(bulan.value);
-        });
-      }
-    } catch {}
+      await MonthlySync.pull(monthlyGetLocal, monthlySetLocal, () => {
+        refreshCountForMonth(bulan.value);
+      });
+    } catch { /* silent */ }
   })();
 
   // ===== helper
-  function formatTanggalLong(dateStr){
-    try { return new Date(dateStr+'T00:00:00').toLocaleDateString('id-ID',{weekday:'long', day:'2-digit', month:'long', year:'numeric'}); }
+  function formatTanggalLong(dateStr) {
+    try { return new Date(dateStr + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }); }
     catch { return dateStr; }
   }
 
   // ===== submit
-  form.addEventListener('submit', async (e)=>{
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const month = (bulan.value || '').trim();
     const dateStr = (tanggal.value || '').trim();
     const tech = (teknisi.value || '').trim();
-    if(!month || !dateStr || !tech){ showToastMsg('Bulan, Tanggal, dan Teknisi wajib diisi.'); return; }
+    if (!month || !dateStr || !tech) { showToastMsg('Bulan, Tanggal, dan Teknisi wajib diisi.'); return; }
 
     computeAutoFields(); // ensure latest
 
@@ -208,15 +265,15 @@
     const tempuhMin = Math.max(0, (tiba - berangkat + 1440) % 1440);
 
     const rec = {
-      id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2),
+      id: (crypto.randomUUID ? crypto.randomUUID() : (String(Date.now()) + Math.random().toString(16).slice(2))),
       month,
       date: dateStr,
       tanggalLabel: formatTanggalLong(dateStr),
       teknisi: tech,
-      lokasiDari: (lokasiDari.value||'').trim(),
-      lokasiKe: (lokasiKe.value||'').trim(),
+      lokasiDari: (lokasiDari.value || '').trim(),
+      lokasiKe: (lokasiKe.value || '').trim(),
       jenis: jenis.value,
-      detail: (detail.value||'').trim(),
+      detail: (detail.value || '').trim(),
       status: status.value,
       jamMasuk: jamMasuk.value || '',
       jamBerangkat: jamBerangkat.value || '',
@@ -228,20 +285,13 @@
       jarakKm: parseFloat(jarak.value || '0') || 0,
       waktuTempuhMin: tempuhMin,
       waktuTempuhStr: toHHMM(tempuhMin),
-      keterangan: (keterangan.value||'').trim(),
+      keterangan: (keterangan.value || '').trim(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
     // Simpan per-akun (LS via AccountNS) + trigger push Drive
     const all = loadReports(); all.push(rec); saveReports(all);
-
-    // Mirror ke Drive (debounced, silent) – tambahan guard
-    try {
-      if (window.MonthlySync?.queuePush) {
-        await window.MonthlySync.queuePush(async ()=>JSON.parse(LS.getItem(STORAGE_KEY)||'[]'));
-      }
-    } catch {}
 
     showToastMsg('Data tersimpan.');
     form.reset(); bulan.value = month; tanggal.value = defaultDate();

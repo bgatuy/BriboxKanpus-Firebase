@@ -135,6 +135,8 @@
     catch { ACCESS_TOKEN = null; return false; }
   }
 
+  DriveSync._notifyAuth && DriveSync._notifyAuth();
+
   // ===== Fetch helpers =====
   const authHeaders = (extra) => {
     if (!ACCESS_TOKEN) throw new Error('Belum login Google Drive.');
@@ -292,6 +294,128 @@
 
   // kompatibilitas lama (tidak dipakai lagi krn tdk ada prefix/hash & subfolder)
   async function findByHashPrefix(){ return null; }
+
+  // ==== Drive polyfills & idempotent helpers (append) ====
+(function(){
+  if (!window.DriveSync) window.DriveSync = {};
+  // akses token (sesuaikan dengan variabel di file kamu — ini dua kemungkinan)
+  const _getToken = () => (window.DriveSync._getAccessToken?.() || window.DriveSync.accessToken || window.accessToken);
+
+  // ---- auth change broadcasting (optional) ----
+  const _authListeners = new Set();
+  if (!DriveSync.onAuthStateChanged) {
+    DriveSync.onAuthStateChanged = (cb) => { if (typeof cb==='function'){ _authListeners.add(cb); try{ cb(!!_getToken()); }catch{} } };
+  }
+  function _notifyAuth(){ for(const f of _authListeners) try{ f(!!_getToken()); }catch{} }
+  // panggil _notifyAuth() di tempat login/logout yang kamu punya (kalau belum)
+
+  // ---- identity bridge untuk user-scope ----
+  if (!DriveSync.getUser) {
+    DriveSync.getUser = () => {
+      const a = (window.Auth && (Auth.currentUser ? Auth.currentUser() : null));
+      return (a && a.uid) ? { uid:String(a.uid), email:a.email||'' } : null;
+    };
+  }
+
+  // ---- HTTP helpers ----
+  async function _gget(url){
+    const token = _getToken(); if (!token) throw new Error('No Drive token');
+    const r = await fetch(url, { headers:{ Authorization:`Bearer ${token}` }});
+    if (!r.ok) throw new Error('Drive GET failed'); return r.json();
+  }
+  async function _gpost(url, body){
+    const token = _getToken(); if (!token) throw new Error('No Drive token');
+    const r = await fetch(url, { method:'POST', headers:{ Authorization:`Bearer ${token}`, 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error('Drive POST failed'); return r.json();
+  }
+
+  // ---- folder utils ----
+  if (!DriveSync.createFolder) DriveSync.createFolder = async (name, parentId=null) => {
+    return _gpost('https://www.googleapis.com/drive/v3/files', {
+      name, mimeType:'application/vnd.google-apps.folder', parents: parentId ? [parentId] : undefined
+    });
+  };
+  if (!DriveSync.findFolderByName) DriveSync.findFolderByName = async (name, parentId=null) => {
+    const q = [
+      "mimeType='application/vnd.google-apps.folder'",
+      "trashed=false",
+      `name='${name.replace(/'/g,"\\'")}'`,
+      parentId ? `'${parentId}' in parents` : "'root' in parents"
+    ].join(' and ');
+    const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=1`;
+    const j = await _gget(url);
+    return j.files?.[0] || null;
+  };
+  if (!DriveSync.ensureRoot) DriveSync.ensureRoot = async () => {
+    const name = 'Bribox Kanpus';
+    const f = await DriveSync.findFolderByName(name);
+    return f?.id || (await DriveSync.createFolder(name)).id;
+  };
+  if (!DriveSync.ensureSub) DriveSync.ensureSub = async (name) => {
+    const parent = await DriveSync.ensureRoot();
+    const f = await DriveSync.findFolderByName(name, parent);
+    return f?.id || (await DriveSync.createFolder(name, parent)).id;
+  };
+
+  // ---- file utils ----
+  if (!DriveSync.findFileByName) DriveSync.findFileByName = async (name, parentId) => {
+    const q = [
+      "trashed=false",
+      `name='${name.replace(/'/g,"\\'")}'`,
+      `'${parentId}' in parents`
+    ].join(' and ');
+    const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,md5Checksum,size)&pageSize=1`;
+    const j = await _gget(url);
+    return j.files?.[0] || null;
+  };
+
+  if (!DriveSync.uploadFileMultipart) DriveSync.uploadFileMultipart = async (name, file, parentId, mime='application/pdf') => {
+    const token = _getToken(); if (!token) throw new Error('No Drive token');
+    const meta = { name, parents:[parentId], mimeType: mime };
+    const boundary = 'END_OF_PART_7d29c1';
+
+    const pre = [
+      `--${boundary}`,
+      'Content-Type: application/json; charset=UTF-8',
+      '',
+      JSON.stringify(meta),
+      `--${boundary}`,
+      `Content-Type: ${mime}`,
+      '',
+    ].join('\r\n');
+
+    const post = `\r\n--${boundary}--`;
+    const body = new Blob([pre, file, post], { type: 'multipart/related; boundary='+boundary });
+
+    const r = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method:'POST', headers:{ Authorization:`Bearer ${token}` }, body
+    });
+    if (!r.ok) throw new Error('Drive upload failed');
+    return r.json();
+  };
+
+  if (!DriveSync.fetchPdfBlob) DriveSync.fetchPdfBlob = async (fileId) => {
+    const token = _getToken(); if (!token) throw new Error('No Drive token');
+    const r = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+      headers:{ Authorization:`Bearer ${token}` }
+    });
+    if (!r.ok) throw new Error('Drive download failed');
+    return r.blob();
+  };
+
+  // ---- IDEMPOTENT by sha256 ----
+  if (!DriveSync.savePdfByHash) DriveSync.savePdfByHash = async (file, sha256) => {
+    const folderId = await DriveSync.ensureSub('pdfs');
+    const fname = `${sha256}.pdf`;
+    const exist = await DriveSync.findFileByName(fname, folderId);
+    if (exist) return { fileId: exist.id, name: fname, folderId, deduped:true };
+    const up = await DriveSync.uploadFileMultipart(fname, file, folderId, file.type || 'application/pdf');
+    return { fileId: up.id, name: fname, folderId, deduped:false };
+  };
+
+  // export helpers (in case not present)
+  Object.assign(DriveSync, { _notifyAuth: _notifyAuth });
+})();
 
   // ===== PUBLIC API =====
   window.DriveSync = Object.assign({}, window.DriveSync, {

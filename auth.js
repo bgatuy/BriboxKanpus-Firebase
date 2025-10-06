@@ -52,10 +52,8 @@
 
   // ====== Auth API ======
   const Auth = {
-    // Bisa diisi manual kalau perlu, default ambil dari window.__CONFIG
     GOOGLE_CLIENT_ID: '',
 
-    // ---- session store ----
     get() {
       const raw = localStorage.getItem(LS_KEY);
       if (!raw) return null;
@@ -79,7 +77,6 @@
     },
     clear() { try { localStorage.removeItem(LS_KEY); } catch {} },
 
-    // ---- guard: panggil di SEMUA halaman fitur ----
     enforce() {
       if (!this.get()) {
         const f = fileNow() || 'trackmate.html';
@@ -89,7 +86,6 @@
       return this.get();
     },
 
-    // ---- logout tombol ----
     logout() {
       if (!confirm('Keluar dari sesi ini?')) return;
       this.clear();
@@ -97,22 +93,26 @@
       goLogin('trackmate.html');
     },
 
-    // ---- login handlers ----
     async handleGoogleCredential(idToken) {
       const p = parseJwt(idToken);
       if (!p?.email) throw new Error('Token Google tidak valid.');
-      this.set({ name: p.name || p.email, email: p.email, picture: p.picture || '', token: idToken });
+      // SIMPAN UID stabil (Google 'sub')
+      this.set({
+        uid: p.sub || p.user_id || p.email || 'anon',
+        name: p.name || p.email,
+        email: p.email,
+        picture: p.picture || '',
+        token: idToken
+      });
       afterLoginRedirect();
     },
 
-    // Mode DEV (tanpa Google)
     async devLogin() {
-      this.set({ name: 'Dev User', email: 'dev@example.com', picture: '' });
+      this.set({ uid: 'dev', name: 'Dev User', email: 'dev@example.com', picture: '' });
       afterLoginRedirect();
     }
   };
 
-  // ---- Google Sign-In (accounts.id) ----
   function waitGIS() {
     return new Promise((res) => {
       if (window.google?.accounts?.id) return res();
@@ -122,7 +122,6 @@
     });
   }
 
-  // Render tombol Google ke selector (mis. '#googleLoginBtn') dan aktifkan One Tap
   Auth.mountGoogleButton = async function (selector = '#googleLoginBtn') {
     const CLIENT_ID = window.__CONFIG?.GOOGLE_CLIENT_ID || this.GOOGLE_CLIENT_ID || '';
     if (!CLIENT_ID) {
@@ -139,22 +138,21 @@
       ux_mode: 'popup',
       auto_select: false,
       callback: (response) => {
-        // response.credential = ID Token (JWT)
         try { Auth.handleGoogleCredential(response.credential); }
         catch (e) { alert('Login gagal: ' + (e?.message || e)); }
       }
     });
 
-    // Tombol resmi Google
-    google.accounts.id.renderButton(el, {
-      theme: 'filled_blue', size: 'large', type: 'standard', shape: 'pill'
-    });
-
-    // Opsional: One Tap
+    google.accounts.id.renderButton(el, { theme: 'filled_blue', size: 'large', type: 'standard', shape: 'pill' });
     google.accounts.id.prompt();
   };
 
-  // expose
+  // expose + getters
+  Auth.getUid = () => (Auth.get()?.uid) || 'anon';
+  Auth.currentUser = () => {
+    const a = Auth.get();
+    return a ? { uid: a.uid, email: a.email, name: a.name, picture: a.picture } : null;
+  };
   window.Auth = Auth;
 
   // ===== Header helper (HANYA untuk halaman fitur) =====
@@ -187,4 +185,3 @@
     window.addEventListener('auth:change', render);
   });
 })();
-

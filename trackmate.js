@@ -736,6 +736,28 @@ copyBtn?.addEventListener("click", async () => {
   }
 });
 
+// ==== Trackmate: handler tombol "Copy" ====
+// Prasyarat: ada util sha256File(file) yang mengembalikan hash konsisten.
+async function handleCopyFile(file) {
+  const uid = Auth.getUid();
+  if (uid === 'anon') { alert('Harus login.'); return; }
+
+  // 1) hitung hash
+  const sha256 = await sha256File(file);
+
+  // 2) simpan ke Drive secara idempoten (1 file per hash lintas-device)
+  const { fileId, deduped } = await DriveSync.savePdfByHash(file, sha256);
+
+  // 3) katalog lokal per-akun (ganti dengan storage kamu sendiri bila sudah ada)
+  const key = `PdfCatalog__${uid}`;
+  const map = JSON.parse(localStorage.getItem(key) || '{}');
+  map[sha256] = { fileId, name:file.name, size:file.size, mime:file.type, at: Date.now() };
+  localStorage.setItem(key, JSON.stringify(map));
+
+  // 4) umpan balik
+  toast?.(deduped ? 'Pakai file yang sudah ada di Drive (no re-upload)' : 'PDF diunggah ke Drive');
+}
+
 // ---------- Toast util ----------
 function showToast(message, duration = 3000, variant = "success") {
   let el = document.querySelector(".toast");

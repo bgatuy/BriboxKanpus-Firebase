@@ -536,11 +536,37 @@
 
   // ===== init: render lokal dulu, lalu tarik dari Drive → merge → render ulang
   applyFilters();
-  document.addEventListener('DOMContentLoaded', async ()=>{
-    try{
-      if (window.MonthlySync?.pull) {
-        await MonthlySync.pull(monthlyGetLocal, monthlySetLocal, applyFilters);
+  // ===== init: render lokal dulu, lalu tarik dari Drive → merge → render ulang
+document.addEventListener('DOMContentLoaded', async () => {
+  applyFilters?.(); // kalau kamu punya
+
+  // kalau masih ada varian lama (MonthlySync.pull), biarkan di sini sebagai fallback
+  try {
+    if (window.MonthlySync?.pull) {
+      await MonthlySync.pull(monthlyGetLocal, monthlySetLocal, applyFilters);
+    }
+  } catch (e) {
+    console.warn('[Monthly] fallback MonthlySync.pull gagal:', e);
+  }
+
+  function monthlyCloudFile() {
+    return `.monthly_data__${Auth.getUid()}.json`; // per-akun ✅
+  }
+
+  async function monthlyPullAndRender() {
+    try {
+      const cloud = await DriveSync.getJson?.(monthlyCloudFile());
+      if (cloud?.data && Array.isArray(cloud.data)) {   // <-- pakai && (bukan &)
+        // merge versi kamu (ganti mergeLocalWith kalau namanya berbeda)
+        await MonthlyLocal.set(mergeLocalWith(cloud.data));
       }
-    }catch{}
-  });
+    } catch (e) {
+      console.warn('[Monthly] pull gagal:', e);
+    }
+    renderMonthlyTable?.(); // render tabel kamu
+  }
+
+  // panggil saat init/load
+  await monthlyPullAndRender();
+});
 })();

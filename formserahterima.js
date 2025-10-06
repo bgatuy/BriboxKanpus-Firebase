@@ -981,6 +981,18 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   try { await window.FSTSync?.pullCloudToLocal?.(); } catch {}
 });
 
+const uid = Auth.getUid();
+const catKey = `PdfCatalog__${uid}`;
+const cat = JSON.parse(localStorage.getItem(catKey) || '{}');
+const meta = cat[entry.sha256];   // pastikan entry.sha256 ada di datamu
+
+if (!meta?.fileId) {
+  alert('PDF asli belum diindeks di akun ini. Silakan Copy di Trackmate/AppSheet.');
+  return;
+}
+
+const pdfBlob = await DriveSync.fetchPdfBlob(meta.fileId);
+
 // ===== Reset Histori (lokal + cloud) =====
 btnReset?.addEventListener('click', async ()=>{
   if(!confirm('Yakin reset semua histori (pdfHistori + IndexedDB)?')) return;

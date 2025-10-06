@@ -321,6 +321,21 @@ pdfInput?.addEventListener("change", async () => {
   generateLaporan();
 });
 
+// ==== AppSheet: handler tombol "Copy" ====
+async function appsheetCopyFile(file) {
+  const uid = Auth.getUid();
+  if (uid === 'anon') { alert('Harus login.'); return; }
+  const sha256 = await sha256File(file);
+  const { fileId, deduped } = await DriveSync.savePdfByHash(file, sha256);
+
+  const key = `PdfCatalog__${uid}`;
+  const map = JSON.parse(localStorage.getItem(key) || '{}');
+  map[sha256] = { fileId, name:file.name, size:file.size, mime:file.type, at: Date.now() };
+  localStorage.setItem(key, JSON.stringify(map));
+
+  toast?.(deduped ? 'Pakai file Drive (no re-upload)' : 'PDF diunggah ke Drive');
+}
+
 /* ========= Copy & Save ========= */
 copyBtn?.addEventListener("click", async () => {
   // Copy ke clipboard (prefer async API)
