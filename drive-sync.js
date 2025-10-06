@@ -3,6 +3,10 @@
   if (window.__DRIVESYNC_LOADED__) return;
   window.__DRIVESYNC_LOADED__ = true;
 
+  // siapkan namespace global lebih dulu biar aman dipakai di bawah
+  window.DriveSync = window.DriveSync || {};
+  const DS = window.DriveSync; // alias lokal
+
   // ========= CONFIG =========
   const CLIENT_ID = window.__CONFIG?.GOOGLE_CLIENT_ID || '';
   if (!CLIENT_ID) console.warn('[DriveSync] GOOGLE_CLIENT_ID kosong di window.__CONFIG');
@@ -12,7 +16,7 @@
     'openid', 'email', 'profile'
   ].join(' ');
 
-  // redirect page harus kirim postMessage { type:'GDRV_TOKEN', access_token, expires_in }
+  // oauth-return.html harus kirim postMessage { type:'GDRV_TOKEN', access_token, expires_in }
   const OAUTH_REDIRECT = new URL('oauth-return.html', location.href).href;
   const ROOT_FOLDER_NAME = 'Bribox Kanpus';
 
@@ -55,7 +59,7 @@
     if (who) who.textContent = logged ? (profile?.email || profile?.name || 'Logged in') : '';
   }
 
-  // ========= Auth state listeners (untuk halaman lain) =========
+  // ========= Auth state listeners =========
   const _authListeners = new Set();
   function _notifyAuth() { for (const f of _authListeners) try { f(!!ACCESS_TOKEN); } catch {} }
 
@@ -81,6 +85,13 @@
     const left = ((width - w) / 2) + dualLeft;
     const top  = ((height - h) / 2) + dualTop;
     return window.open(url, title, `scrollbars=yes,resizable=yes,width=${w},height=${h},top=${top},left=${left}`);
+  }
+
+  async function afterLogin() {
+    try { cachedProfile = await httpJSON('https://openidconnect.googleapis.com/v1/userinfo'); }
+    catch (e) { console.warn('[DriveSync] userinfo error:', e); cachedProfile = null; }
+    setAuthUI(true, cachedProfile);
+    await ensureRootFolder();
   }
 
   async function signIn() {
@@ -139,7 +150,6 @@
     }
   }
 
-  // ========= Auto-resume =========
   async function tryResume() {
     const t = loadTokenIfValid();
     if (!t) return false;
@@ -160,14 +170,6 @@
       throw new Error(`HTTP ${res.status}: ${txt}`);
     }
     return res.json();
-  }
-
-  // ========= Setelah login =========
-  async function afterLogin() {
-    try { cachedProfile = await httpJSON('https://openidconnect.googleapis.com/v1/userinfo'); }
-    catch (e) { console.warn('[DriveSync] userinfo error:', e); cachedProfile = null; }
-    setAuthUI(true, cachedProfile);
-    await ensureRootFolder();
   }
 
   // ========= Drive ops (list/query/folder) =========
@@ -237,7 +239,6 @@
     if (!res.ok) throw new Error('Update JSON failed: ' + res.status);
     return true;
   }
-  /** Dapatkan JSON by name (root). Return: {id, data} atau null kalau belum ada */
   async function getJson(name) {
     const f = await findFileInRootByName(name);
     if (!f) return null;
@@ -245,7 +246,6 @@
     let data = null; try { data = JSON.parse(txt); } catch {}
     return { id: f.id, data };
   }
-  /** Simpan (create/update) JSON di root. Return: {id} */
   async function putJson(name, obj) {
     const txt = JSON.stringify(obj ?? {}, null, 0);
     const f = await findFileInRootByName(name);
@@ -258,7 +258,10 @@
   async function ensureSub(subName) {
     const parent = await ensureRootFolder();
     const esc = String(subName).replace(/'/g, "\\'");
-    const list = await queryDrive(`'${parent}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder' and name='${esc}'`, 'id,name');
+    const list = await queryDrive(
+      `'${parent}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder' and name='${esc}'`,
+      'id,name'
+    );
     if (list.length) return list[0].id;
     const res = await fetch('https://www.googleapis.com/drive/v3/files', {
       method: 'POST',
@@ -320,7 +323,7 @@
   }
 
   // ========= PUBLIC API =========
-  window.DriveSync = Object.assign({}, window.DriveSync, {
+  window.DriveSync = Object.assign(window.DriveSync, {
     // auth
     signIn, signOut, tryResume,
     isLogged: () => !!ACCESS_TOKEN,
