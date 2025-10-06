@@ -777,6 +777,7 @@ async function generateOriginalsOnly(selected){
         const local = getPdfHistori();
         const rev = getLocalRev() || Date.now();
         await window.DriveSync.putJson(HISTORY_FILE, { rev, data: local });
+        setLocalRev(rev);
       } catch {}
     }, 800);
   }
@@ -982,23 +983,48 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 });
 
 // ===== Reset Histori (lokal + cloud) =====
-btnReset?.addEventListener('click', async ()=>{
-  if(!confirm('Yakin reset semua histori (pdfHistori + IndexedDB)?')) return;
+btnReset?.addEventListener('click', async () => {
+  if (!confirm('Yakin reset semua histori (pdfHistori + IndexedDB)?')) return;
 
-  // bersihkan lokal
-  localStorage.removeItem('pdfHistori');
+  // 1) kosongkan histori lokal (pakai helper supaya respect namespace)
+  setPdfHistori([]);
+
+  // 2) bersihkan DB lokal
   try { await clearIndexedDB(); } catch {}
-  if (selNama) { selNama.selectedIndex = 0; selNama.value = ''; }
-  try { localStorage.removeItem(KEY_NAMA || 'serah_ttd_nama'); } catch {}
 
-  // set rev baru & push kosong KE CLOUD segera
+  // 3) bersihkan pilihan nama TTD
+  try { localStorage.removeItem(KEY_NAMA || 'serah_ttd_nama'); } catch {}
+  if (selNama) { selNama.selectedIndex = 0; selNama.value = ''; }
+
+  // 4) bersihkan katalog per-akun (mapping sha256 -> fileId)
   try {
-    const revKey = (window.AccountStore?.nsKey ? window.AccountStore.nsKey('pdfHistoriRev') : 'pdfHistoriRev');
-    localStorage.setItem(revKey, String(Date.now()));
-    await window.FSTSync?.clearCloudNow?.();   // butuh CLOUD MIRROR versi "rev"
+    const uid = (window.Auth?.getUid?.() || 'anon');
+    localStorage.removeItem(`PdfCatalog__${uid}`);
   } catch {}
 
+  // 5) push kosong ke cloud (dua jalur: manifest per-akun & FST-History.json)
+try {
+  const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+  if (ok || window.DriveSync?.isLogged?.()) {
+    const uid = (window.DriveSync?.getUser?.()?.uid) ||
+                (window.Auth?.user?.uid) ||
+                (window.Auth?.currentUser?.()?.uid) || 'anon';
+    const manifest = `.bribox_histori__${uid}.json`;
+    const revNow = Date.now();
+
+    await window.DriveSync?.putJson?.(manifest, []); 
+    await window.DriveSync?.putJson?.('FST-History.json', { rev: revNow, data: [] });
+
+    // sinkronkan rev lokal
+    const KEY_REV = (window.AccountStore?.nsKey ? window.AccountStore.nsKey('pdfHistoriRev') : 'pdfHistoriRev');
+    localStorage.setItem(KEY_REV, String(revNow));
+  }
+} catch (e) { console.warn('push reset cloud gagal:', e); }
+
+
+  // 6) render ulang & tutup banner hydrator
   renderTabel();
+  try { document.getElementById('hydrateBanner')?.remove(); } catch {}
 });
 
 /* ===========================
@@ -1144,12 +1170,13 @@ btnReset?.addEventListener('click', async ()=>{
   return await driveSearch(q);
 }
 
-async function driveFindByName(name){
+async function driveFindByName(name) {
   if (!name) return [];
-  // tetap pertahankan pencarian nama asli sebagai fallback
+  // fallback cari berdasarkan nama asli file
   const q = `mimeType='application/pdf' and trashed=false and name='${esc(name)}'`;
   return await driveSearch(q);
-  }
+}
+
   async function driveDownloadBlob(fileId){
     const token = await getToken(); if (!token) return null;
     const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`;

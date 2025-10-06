@@ -322,34 +322,40 @@
     return { fileId: up.id, name: fname, folderId, deduped: false };
   }
 
-  // ========= PUBLIC API =========
-  window.DriveSync = Object.assign(window.DriveSync, {
-    // auth
-    signIn, signOut, tryResume,
-    isLogged: () => !!ACCESS_TOKEN,
-    onAuthStateChanged: (cb) => { if (typeof cb === 'function') { _authListeners.add(cb); try { cb(!!ACCESS_TOKEN); } catch {} } },
-    getUser: () => {
-      const a = (window.Auth && (Auth.currentUser ? Auth.currentUser() : null));
-      return (a && a.uid) ? { uid: String(a.uid), email: a.email || '' } : null;
-    },
+  // ======== PUBLIC API ========
+window.DriveSync = Object.assign(window.DriveSync || {}, {
+  signIn, signOut, tryResume,
+  isLogged: () => !!ACCESS_TOKEN,
 
-    // profile
-    getProfile: async () => {
-      if (!ACCESS_TOKEN) throw new Error('Belum login');
-      if (cachedProfile) return cachedProfile;
-      cachedProfile = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: authHeaders() }).then(r => r.json());
-      return cachedProfile;
-    },
+  // <— Tambah dua getter ini
+  getAccessToken: () => ACCESS_TOKEN,
+  _getAccessToken: () => ACCESS_TOKEN,   // compatibility utk polyfill lama
 
-    // folders & files
-    ensureFolder: ensureRootFolder,
-    ensureSub, findFileByName,
-    savePdfByHash, fetchPdfBlob,
-    uploadFileMultipart,
+  onAuthStateChanged: (cb) => { if (typeof cb === 'function') _authListeners.add(cb); },
+  getUser: () => {
+    const a = (window.Auth && (Auth.currentUser ? Auth.currentUser() : null));
+    return (a && a.uid) ? { uid: String(a.uid), email: a.email || '' } : null;
+  },
 
-    // JSON mirror
-    getJson, putJson
-  });
+  // profil (sudah ada di punyamu, biarkan)
+  getProfile: async () => {
+    if (!ACCESS_TOKEN) throw new Error('Belum login');
+    if (cachedProfile) return cachedProfile;
+    cachedProfile = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+      headers: { Authorization: 'Bearer ' + ACCESS_TOKEN }
+    }).then(r => r.json());
+    return cachedProfile;
+  },
+
+  // folders & files (punyamu)
+  ensureFolder: ensureRootFolder,
+  ensureSub, findFileByName,
+  savePdfByHash, fetchPdfBlob, uploadFileMultipart,
+
+  // JSON mirror
+  getJson, putJson,
+});
+
 
   // ========= Optional: wiring tombol connect =========
   document.addEventListener('DOMContentLoaded', () => {

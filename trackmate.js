@@ -47,7 +47,10 @@ document.addEventListener('DOMContentLoaded', function () {
   else if (title.includes('appsheet'))  body.setAttribute('data-page', 'appsheet');
   else if (title.includes('serah'))     body.setAttribute('data-page', 'serah');
   else if (title.includes('merge'))     body.setAttribute('data-page', 'merge');
+
+  try { window.DriveQueue?.init?.(); } catch {}
 });
+
 
 // ---------- QUERY DOM ----------
 const fileInput    = document.getElementById('pdfFile');
