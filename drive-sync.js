@@ -386,6 +386,44 @@
     return null;
   }
 
+  // === Resumable upload (2-step) ===
+async function driveResumableUpload(file, metadata, accessToken) {
+  // 1) init session
+  const init = await fetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json; charset=UTF-8',
+        'X-Upload-Content-Type': file.type || 'application/pdf'
+      },
+      body: JSON.stringify(metadata)
+    }
+  );
+  if (!init.ok) {
+    const msg = await init.text().catch(() => init.statusText);
+    throw new Error(`Init resumable failed: ${init.status} ${msg}`);
+  }
+  const uploadUrl = init.headers.get('location');
+  if (!uploadUrl) throw new Error('No resumable Location header');
+
+  // 2) upload body
+  const up = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': file.type || 'application/pdf'
+    },
+    body: file
+  });
+  if (!up.ok) {
+    const msg = await up.text().catch(() => up.statusText);
+    throw new Error(`Upload failed: ${up.status} ${msg}`);
+  }
+  return up.json(); // berisi { id, name, ... }
+}
+
   // ======== PUBLIC API ========
   window.DriveSync = Object.assign(window.DriveSync || {}, {
     signIn, signOut, tryResume,
