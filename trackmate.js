@@ -752,42 +752,34 @@ try {
 
     // paralel: IDB + Drive
     const TIMEOUT_MS = 12000;
-    const idbPromise = Promise.race([
-      (async () => {
-        await savePdfToIndexedDB_keepSchema(file, { contentHash });
-        await saveBlobByHash(file, contentHash);
-      })(),
-      new Promise((_, rej) => setTimeout(() => rej(new Error("IDB timeout")), TIMEOUT_MS))
-    ]).catch(err => { console.warn("IndexedDB gagal/timeout:", err); return null; });
 
-   const drivePromise = (async () => {
-  // kalau sudah sukses via savePdfByHash, tidak perlu upload lagi
-  if (uploadedViaHash) return true;
+const idbPromise = Promise.race([
+  (async () => {
+    await savePdfToIndexedDB_keepSchema(file, { contentHash });
+    // Hapus baris di bawah jika fungsi ini meng-upload ke Drive:
+    // await saveBlobByHash(file, contentHash);
+  })(),
+  new Promise((_, rej) => setTimeout(() => rej(new Error("IDB timeout")), TIMEOUT_MS))
+]).catch(err => { console.warn("IndexedDB gagal/timeout:", err); return null; });
 
-  // coba lewat DriveQueue (akan auto-dedupe + bisa antre)
+const drivePromise = (async () => {
+  if (uploadedViaHash) return true; // sudah sukses via savePdfByHash di atas
   try {
     const res = await window.DriveQueue?.enqueueOrUpload?.(file, contentHash);
     try { await window.DriveQueue?.flush?.(); } catch {}
     if (res?.uploaded) return true;
   } catch {}
-
-  // terakhir, coba lagi idempoten langsung
-  try {
-    await DriveSync?.savePdfByHash?.(file, contentHash);
-    return true;
-  } catch {}
-
+  try { await DriveSync?.savePdfByHash?.(file, contentHash); return true; } catch {}
   return false;
 })();
 
+const [idbResult] = await Promise.all([idbPromise, drivePromise]);
 
-    await Promise.allSettled([idbPromise, drivePromise]);
-
-    if (await idbPromise === null) {
-      showToast("⚠ Histori disimpan. File PDF asli gagal disimpan lokal (coba ulang).", 5000, "warn");
-    } else {
-      showToast("✔ Berhasil disimpan ke histori", 3000, "success");
-    }
+if (idbResult === null) {
+  showToast("⚠ Histori disimpan. File PDF asli gagal disimpan lokal (coba ulang).", 5000);
+} else {
+  showToast("✔ Berhasil disimpan ke histori", 3000);
+}
 
   } catch (err) {
     console.error("Copy handler error:", err);
