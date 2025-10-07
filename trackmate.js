@@ -177,10 +177,7 @@ const STORE_NAME  = "pdfs";
 const STORE_BLOBS = "pdfBlobs";
 let db;
 
-function currentDbName() {
-  const uid = getUidOrAnon();
-  return uid === 'anon' ? 'PdfStorage' : `PdfStorage__${uid}`;
-}
+function currentDbName() { return 'PdfStorage'; }
 function openDb() {
   const DB_NAME = currentDbName();
   return new Promise((resolve, reject) => {
@@ -697,36 +694,25 @@ copyBtn?.addEventListener("click", async () => {
       uploadedAt: new Date().toISOString()
     };
 
-    // === Drive idempoten + katalog per-akun ===
+   // === Drive idempoten + katalog per-akun ===
+let uploadedViaHash = false;   
 try {
   const uid = (window.Auth?.getUid?.() || 'anon');
-  if (uid === 'anon') {
-    alert('Harus login dulu.'); 
-    return;
-  }
+  if (uid === 'anon') { alert('Harus login dulu.'); return; }
 
-  // Pastikan token Drive
   const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
-  if (!ok && !window.DriveSync?.isLogged?.()) {
-    alert('Silakan klik "Connect Google Drive" dulu.');
-    return;
-  }
+  if (!ok && !window.DriveSync?.isLogged?.()) { alert('Silakan klik "Connect Google Drive" dulu.'); return; }
 
   // Upload idempoten: /Bribox Kanpus/pdfs/<sha256>.pdf
   const { fileId, deduped } = await DriveSync.savePdfByHash(file, contentHash);
 
-  // Simpan mapping hash → fileId (dipakai FST)
+  // simpan katalog
   const catKey = `PdfCatalog__${uid}`;
   const catMap = JSON.parse(localStorage.getItem(catKey) || '{}');
-  catMap[contentHash] = {
-    fileId,
-    name: file.name,
-    size: file.size,
-    mime: file.type,
-    at: Date.now()
-  };
+  catMap[contentHash] = { fileId, name:file.name, size:file.size, mime:file.type, at:Date.now() };
   localStorage.setItem(catKey, JSON.stringify(catMap));
 
+  uploadedViaHash = true; // <-- tandai sudah sukses lewat jalur idempoten
   showToast(deduped ? '☁️ Pakai file yang sudah ada di Drive' : '☁️ PDF diunggah ke Drive', 2500, 'success');
 } catch (e) {
   console.warn('[Trackmate] Drive idempoten gagal:', e);
@@ -759,7 +745,26 @@ try {
       new Promise((_, rej) => setTimeout(() => rej(new Error("IDB timeout")), TIMEOUT_MS))
     ]).catch(err => { console.warn("IndexedDB gagal/timeout:", err); return null; });
 
-    const drivePromise = tryUploadOriginalToDrive(file, contentHash);
+   const drivePromise = (async () => {
+  // kalau sudah sukses via savePdfByHash, tidak perlu upload lagi
+  if (uploadedViaHash) return true;
+
+  // coba lewat DriveQueue (akan auto-dedupe + bisa antre)
+  try {
+    const res = await window.DriveQueue?.enqueueOrUpload?.(file, contentHash);
+    try { await window.DriveQueue?.flush?.(); } catch {}
+    if (res?.uploaded) return true;
+  } catch {}
+
+  // terakhir, coba lagi idempoten langsung
+  try {
+    await DriveSync?.savePdfByHash?.(file, contentHash);
+    return true;
+  } catch {}
+
+  return false;
+})();
+
 
     await Promise.allSettled([idbPromise, drivePromise]);
 
