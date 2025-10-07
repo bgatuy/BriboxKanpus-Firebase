@@ -3,7 +3,7 @@
   if (window.__DRIVESYNC_LOADED__) return;
   window.__DRIVESYNC_LOADED__ = true;
 
-  // siapkan namespace global lebih dulu biar aman dipakai di bawah
+  // siapkan namespace global
   window.DriveSync = window.DriveSync || {};
   const DS = window.DriveSync; // alias lokal
 
@@ -79,11 +79,11 @@
 
   function openCenteredPopup(url, title, w = 520, h = 620) {
     const dualLeft = (window.screenLeft ?? window.screenX);
-    const dualTop  = (window.screenTop  ?? window.screenY);
+    theTop  = (window.screenTop  ?? window.screenY);
     const width  = window.innerWidth  || document.documentElement.clientWidth  || screen.width;
     const height = window.innerHeight || document.documentElement.clientHeight || screen.height;
     const left = ((width - w) / 2) + dualLeft;
-    const top  = ((height - h) / 2) + dualTop;
+    const top  = ((height - h) / 2) + theTop;
     return window.open(url, title, `scrollbars=yes,resizable=yes,width=${w},height=${h},top=${top},left=${left}`);
   }
 
@@ -282,6 +282,45 @@
     return list[0] || null;
   }
 
+  // ==== Resumable upload (2-step) untuk PDF ====
+  async function driveResumableUpload(file, metadata, accessToken) {
+    // 1) init session
+    const init = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json; charset=UTF-8',
+          'X-Upload-Content-Type': file.type || 'application/pdf'
+        },
+        body: JSON.stringify(metadata)
+      }
+    );
+    if (!init.ok) {
+      const msg = await init.text().catch(() => init.statusText);
+      throw new Error(`Init resumable failed: ${init.status} ${msg}`);
+    }
+    const uploadUrl = init.headers.get('location');
+    if (!uploadUrl) throw new Error('No resumable Location header');
+
+    // 2) upload body
+    const up = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': file.type || 'application/pdf'
+      },
+      body: file
+    });
+    if (!up.ok) {
+      const msg = await up.text().catch(() => up.statusText);
+      throw new Error(`Upload failed: ${up.status} ${msg}`);
+    }
+    return up.json();
+  }
+
+  // multipart uploader (tetap dipakai untuk JSON/keperluan lain)
   async function uploadFileMultipart(name, file, parentId, mime = 'application/pdf', metaExtra) {
     const meta = Object.assign({ name, parents: [parentId], mimeType: mime }, metaExtra || {});
     const boundary = 'END_OF_PART_7d29c1';
@@ -334,13 +373,19 @@
       return { fileId: exist.id, name: fname, folderId, deduped: true };
     }
 
-    // tulis appProperties supaya bisa dicari lintas device
-    const up = await uploadFileMultipart(
-      fname,
+    // === Upload pakai Resumable ===
+    const token = DS._getAccessToken?.() || DS.getAccessToken?.();
+    if (!token) throw new Error('Belum login Google Drive.');
+
+    const up = await driveResumableUpload(
       file,
-      folderId,
-      file.type || 'application/pdf',
-      { appProperties: { contentHash: sha256, module: 'trackmate', uid } }
+      {
+        name: fname,
+        parents: [folderId],
+        description: 'Bribox Kanpus - original',
+        appProperties: { contentHash: sha256, module: 'trackmate', uid }
+      },
+      token
     );
 
     // simpan katalog lokal per-akun
@@ -350,6 +395,9 @@
       cat[sha256] = { id: up.id, name: fname };
       localStorage.setItem(k, JSON.stringify(cat));
     } catch {}
+
+    // debug
+    console.log('[Drive] savePdfByHash OK (resumable):', { fileId: up.id, deduped: false, hash: sha256 });
 
     return { fileId: up.id, name: fname, folderId, deduped: false };
   }
@@ -385,44 +433,6 @@
 
     return null;
   }
-
-  // === Resumable upload (2-step) ===
-async function driveResumableUpload(file, metadata, accessToken) {
-  // 1) init session
-  const init = await fetch(
-    'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json; charset=UTF-8',
-        'X-Upload-Content-Type': file.type || 'application/pdf'
-      },
-      body: JSON.stringify(metadata)
-    }
-  );
-  if (!init.ok) {
-    const msg = await init.text().catch(() => init.statusText);
-    throw new Error(`Init resumable failed: ${init.status} ${msg}`);
-  }
-  const uploadUrl = init.headers.get('location');
-  if (!uploadUrl) throw new Error('No resumable Location header');
-
-  // 2) upload body
-  const up = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': file.type || 'application/pdf'
-    },
-    body: file
-  });
-  if (!up.ok) {
-    const msg = await up.text().catch(() => up.statusText);
-    throw new Error(`Upload failed: ${up.status} ${msg}`);
-  }
-  return up.json(); // berisi { id, name, ... }
-}
 
   // ======== PUBLIC API ========
   window.DriveSync = Object.assign(window.DriveSync || {}, {
