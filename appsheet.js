@@ -51,6 +51,38 @@ const output       = document.getElementById("output");
 const copyBtn      = document.getElementById("copyBtn");
 const lokasiSelect = document.getElementById("inputLokasi");
 
+// ==== Histori per-akun untuk AppSheet ====
+const PUBLIC_HIST_KEY = 'pdfHistori';
+
+function getUidOrAnon(){
+  try {
+    return (window.DriveSync?.getUser?.()?.uid)
+        || (window.Auth?.getUid?.())
+        || (window.Auth?.user?.uid)
+        || (window.Auth?.currentUser?.()?.uid)
+        || 'anon';
+  } catch { return 'anon'; }
+}
+
+function userHistKey(){ return `${PUBLIC_HIST_KEY}::${getUidOrAnon()}`; }
+function manifestName(){ return `.bribox_histori__${getUidOrAnon()}.json`; }
+
+function readHistori(){
+  try { return JSON.parse(localStorage.getItem(userHistKey()) || '[]'); }
+  catch { return []; }
+}
+
+async function writeHistori(arr){
+  const json = JSON.stringify(Array.isArray(arr)?arr:[]);
+  // simpan per-akun + alias publik (kompat modul lain)
+  localStorage.setItem(userHistKey(), json);
+  localStorage.setItem(PUBLIC_HIST_KEY, json);
+
+  // mirror sederhana ke Drive (kalau tersambung)
+  try { await window.DriveSync?.putTextFile?.(manifestName(), json, 'application/json'); } catch {}
+}
+
+
 /* ========= Toast ========= */
 function showToast(message, duration = 3000) {
   const toast = document.createElement('div');
@@ -169,14 +201,8 @@ async function savePdfToIndexedDB(fileOrBlob, nameOverride, extra = {}) {
   if (blob.type !== 'application/pdf') throw new Error('Type bukan PDF');
   if (!blob.size) throw new Error('PDF kosong');
 
-  // meta dari autoCalibrate (optional)
-  let meta = null;
-  try {
-    const buf = await blob.arrayBuffer();
-    meta = await autoCalibratePdf(buf);       // { x,y,linesUK,linesSOL,dx,dy,v }
-  } catch (e) {
-    console.warn('autoCalibrate gagal:', e);
-  }
+  // AppSheet: PDF-nya sudah berisi nama → minta FST jangan stamp lagi
+  const meta = { skipStamp: true, v: 1 };
 
   const contentHash = extra.contentHash || null;
   const database = await openDb();

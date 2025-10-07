@@ -176,7 +176,7 @@
   async function queryDrive(q, fields) {
     const p = new URLSearchParams({
       q, spaces: 'drive', pageSize: '1000',
-      fields: 'files(' + (fields || 'id,name,mimeType,parents,createdTime,modifiedTime,size') + ')'
+      fields: 'files(' + (fields || 'id,name,mimeType,parents,createdTime,modifiedTime,size,appProperties') + ')'
     });
     const url = 'https://www.googleapis.com/drive/v3/files?' + p.toString();
     const res = await fetch(url, { headers: authHeaders() });
@@ -255,31 +255,35 @@
   }
 
   // ========= Subfolder & file utils (idempoten PDF by sha256) =========
+  const __subCache = new Map();
   async function ensureSub(subName) {
+    if (__subCache.has(subName)) return __subCache.get(subName);
     const parent = await ensureRootFolder();
     const esc = String(subName).replace(/'/g, "\\'");
     const list = await queryDrive(
       `'${parent}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder' and name='${esc}'`,
       'id,name'
     );
-    if (list.length) return list[0].id;
+    if (list.length) { __subCache.set(subName, list[0].id); return list[0].id; }
     const res = await fetch('https://www.googleapis.com/drive/v3/files', {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ name: subName, mimeType: 'application/vnd.google-apps.folder', parents: [parent] })
     });
     if (!res.ok) throw new Error('Create subfolder failed: ' + res.status);
-    return (await res.json()).id;
+    const id = (await res.json()).id;
+    __subCache.set(subName, id);
+    return id;
   }
 
   async function findFileByName(name, parentId) {
     const esc = String(name).replace(/'/g, "\\'");
-    const list = await queryDrive(`'${parentId}' in parents and trashed=false and name='${esc}'`, 'id,name,mimeType,md5Checksum,size');
+    const list = await queryDrive(`'${parentId}' in parents and trashed=false and name='${esc}'`, 'id,name,mimeType,md5Checksum,size,appProperties');
     return list[0] || null;
   }
 
-  async function uploadFileMultipart(name, file, parentId, mime = 'application/pdf') {
-    const meta = { name, parents: [parentId], mimeType: mime };
+  async function uploadFileMultipart(name, file, parentId, mime = 'application/pdf', metaExtra) {
+    const meta = Object.assign({ name, parents: [parentId], mimeType: mime }, metaExtra || {});
     const boundary = 'END_OF_PART_7d29c1';
 
     const pre = [
@@ -317,45 +321,100 @@
     const folderId = await ensureSub('pdfs');
     const fname = `${sha256}.pdf`;
     const exist = await findFileByName(fname, folderId);
-    if (exist) return { fileId: exist.id, name: fname, folderId, deduped: true };
-    const up = await uploadFileMultipart(fname, file, folderId, file.type || 'application/pdf');
+    const uid = (window.Auth?.getUid?.() || 'anon');
+
+    if (exist) {
+      // update katalog lokal per-akun
+      try {
+        const k = `PdfCatalog__${uid}`;
+        const cat = JSON.parse(localStorage.getItem(k) || '{}');
+        cat[sha256] = { id: exist.id, name: fname };
+        localStorage.setItem(k, JSON.stringify(cat));
+      } catch {}
+      return { fileId: exist.id, name: fname, folderId, deduped: true };
+    }
+
+    // tulis appProperties supaya bisa dicari lintas device
+    const up = await uploadFileMultipart(
+      fname,
+      file,
+      folderId,
+      file.type || 'application/pdf',
+      { appProperties: { contentHash: sha256, module: 'trackmate', uid } }
+    );
+
+    // simpan katalog lokal per-akun
+    try {
+      const k = `PdfCatalog__${uid}`;
+      const cat = JSON.parse(localStorage.getItem(k) || '{}');
+      cat[sha256] = { id: up.id, name: fname };
+      localStorage.setItem(k, JSON.stringify(cat));
+    } catch {}
+
     return { fileId: up.id, name: fname, folderId, deduped: false };
   }
 
+  /** Resolve Drive fileId dari hash:
+   *  1) cek katalog lokal per-akun
+   *  2) cek di /pdfs by exact name "<hash>.pdf"
+   *  3) fallback: query appProperties (kalau ada)
+   */
+  async function getFileIdByHash(sha256) {
+    const uid = (window.Auth?.getUid?.() || 'anon');
+    // 1) lokal
+    try {
+      const k = `PdfCatalog__${uid}`;
+      const cat = JSON.parse(localStorage.getItem(k) || '{}');
+      if (cat[sha256]?.id) return cat[sha256].id;
+    } catch {}
+
+    // 2) /pdfs by name
+    try {
+      const folderId = await ensureSub('pdfs');
+      const fname = `${sha256}.pdf`;
+      const exist = await findFileByName(fname, folderId);
+      if (exist?.id) return exist.id;
+    } catch {}
+
+    // 3) appProperties
+    try {
+      const q = `appProperties has { key='contentHash' and value='${sha256}' } and trashed=false`;
+      const hit = (await queryDrive(q, 'id,name,appProperties'))[0];
+      if (hit?.id) return hit.id;
+    } catch {}
+
+    return null;
+  }
+
   // ======== PUBLIC API ========
-window.DriveSync = Object.assign(window.DriveSync || {}, {
-  signIn, signOut, tryResume,
-  isLogged: () => !!ACCESS_TOKEN,
+  window.DriveSync = Object.assign(window.DriveSync || {}, {
+    signIn, signOut, tryResume,
+    isLogged: () => !!ACCESS_TOKEN,
 
-  // <— Tambah dua getter ini
-  getAccessToken: () => ACCESS_TOKEN,
-  _getAccessToken: () => ACCESS_TOKEN,   // compatibility utk polyfill lama
+    // helper akses token (compat lama)
+    getAccessToken: () => ACCESS_TOKEN,
+    _getAccessToken: () => ACCESS_TOKEN,
 
-  onAuthStateChanged: (cb) => { if (typeof cb === 'function') _authListeners.add(cb); },
-  getUser: () => {
-    const a = (window.Auth && (Auth.currentUser ? Auth.currentUser() : null));
-    return (a && a.uid) ? { uid: String(a.uid), email: a.email || '' } : null;
-  },
+    onAuthStateChanged: (cb) => { if (typeof cb === 'function') _authListeners.add(cb); },
 
-  // profil (sudah ada di punyamu, biarkan)
-  getProfile: async () => {
-    if (!ACCESS_TOKEN) throw new Error('Belum login');
-    if (cachedProfile) return cachedProfile;
-    cachedProfile = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
-      headers: { Authorization: 'Bearer ' + ACCESS_TOKEN }
-    }).then(r => r.json());
-    return cachedProfile;
-  },
+    // profil
+    getProfile: async () => {
+      if (!ACCESS_TOKEN) throw new Error('Belum login');
+      if (cachedProfile) return cachedProfile;
+      cachedProfile = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+        headers: { Authorization: 'Bearer ' + ACCESS_TOKEN }
+      }).then(r => r.json());
+      return cachedProfile;
+    },
 
-  // folders & files (punyamu)
-  ensureFolder: ensureRootFolder,
-  ensureSub, findFileByName,
-  savePdfByHash, fetchPdfBlob, uploadFileMultipart,
+    // folders & files
+    ensureFolder: ensureRootFolder,
+    ensureSub, findFileByName,
+    savePdfByHash, getFileIdByHash, fetchPdfBlob, uploadFileMultipart,
 
-  // JSON mirror
-  getJson, putJson,
-});
-
+    // JSON mirror
+    getJson, putJson,
+  });
 
   // ========= Optional: wiring tombol connect =========
   document.addEventListener('DOMContentLoaded', () => {

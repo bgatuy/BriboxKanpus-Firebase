@@ -3,13 +3,23 @@
 
   /* ============== USER-SCOPE (per akun) ============== */
   const LS = {
-    getItem(k) { return (window.AccountNS?.getItem?.(k)) ?? localStorage.getItem(k); },
-    setItem(k, v) {
-      if (window.AccountNS?.setItem) window.AccountNS.setItem(k, v);
-      else localStorage.setItem(k, v);
-    }
-  };
+  getItem(k){ return (window.AccountNS?.getItem?.(k)) ?? localStorage.getItem(k); },
+  setItem(k,v){
+    if (window.AccountNS?.setItem) window.AccountNS.setItem(k, v);
+    else localStorage.setItem(k, v);
+  }
+}
 
+// ===== UID helper aman (DriveSync > Auth > anon)
+  function getUidOrAnon(){
+    try {
+      return (window.DriveSync?.getUser?.()?.uid)
+          || (window.Auth?.getUid?.())
+          || (window.Auth?.user?.uid)
+          || (window.Auth?.currentUser?.()?.uid)
+          || 'anon';
+    } catch { return 'anon'; }
+  }
   function loadReports() {
     try { return JSON.parse(LS.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
   }
@@ -17,8 +27,8 @@
     const safe = JSON.stringify(Array.isArray(arr) ? arr : []);
     LS.setItem(STORAGE_KEY, safe);
     // dorong ke Drive (debounced) supaya device lain kebagian
-    MonthlySync.queuePush(monthlyGetLocal);
-  }
+    try { window.MonthlySync?.queuePush?.(monthlyGetLocal); } catch {}
+   }
 
   /* ========= SIDEBAR ========= */
   const sidebar = document.querySelector('.sidebar');
@@ -159,15 +169,16 @@
 
   // ===== MonthlySync local (pakai Drive JSON per-akun)
   const MonthlySync = window.MonthlySync = window.MonthlySync || {};
-  MonthlySync.fileName = () => `.monthly_data__${Auth.getUid()}.json`;
+  MonthlySync.fileName = () => `.monthly_data__${getUidOrAnon()}.json`;
 
   // pull: ambil JSON dari Drive → merge ke lokal → callback
   MonthlySync.pull = async (getLocal, setLocal, onAfter) => {
     try {
       const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
       if (!ok && !window.DriveSync?.isLogged?.()) return;
-      const cloud = await window.DriveSync?.getJson?.(MonthlySync.fileName());
-      if (!cloud?.data || !Array.isArray(cloud.data)) { onAfter && onAfter(); return; }
+      const cloudObj = await window.DriveSync?.getJson?.(MonthlySync.fileName());
+      const incoming = cloudObj?.data;
+      if (!Array.isArray(incoming)) { onAfter && onAfter(); return; }
 
       // merge: last-write-wins by createdAt/updatedAt kalau ada id sama
       const base = await getLocal();
@@ -176,7 +187,7 @@
         const id = x.id || [x.month, x.date, x.teknisi, x.createdAt].filter(Boolean).join('|');
         return { id, ...x };
       };
-      [...base, ...cloud.data].forEach((r) => {
+      [...base, ...incoming].forEach((r) => {
         const n = norm(r);
         const ex = map.get(n.id);
         if (!ex) map.set(n.id, n);
@@ -201,13 +212,13 @@
       clearTimeout(t);
       t = setTimeout(async () => {
         try {
-          const uid = Auth.getUid();
+          const uid = getUidOrAnon();
           if (!uid || uid === 'anon') return;
           const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
           if (!ok && !window.DriveSync?.isLogged?.()) return;
           const rows = await getLocal();
           if (!Array.isArray(rows)) return;
-          await window.DriveSync?.putJson?.(MonthlySync.fileName(), rows);
+          await window.DriveSync?.putJson?.(MonthlySync.fileName(), { data: rows });
         } catch (e) {
           console.warn('[MonthlySync.queuePush] gagal:', e);
         }

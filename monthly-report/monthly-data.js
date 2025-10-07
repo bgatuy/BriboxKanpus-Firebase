@@ -3,13 +3,26 @@
   const STORAGE_KEY = "monthlyReports";
   const ACTIVE_TECH_KEY = "activeTechnician";
 
+  // ===== UID helper (per-akun)
+  function getUidOrAnon() {
+    try {
+      return (window.DriveSync?.getUser?.()?.uid)
+          || (window.Auth?.getUid?.())
+          || (window.Auth?.user?.uid)
+          || (window.Auth?.currentUser?.()?.uid)
+          || 'anon';
+    } catch { return 'anon'; }
+  }
+  function monthlyCloudFile() {
+    return `.monthly_data__${getUidOrAnon()}.json`;
+  }
+
   /* ========== USER-SCOPE (per akun) ========== */
   const LS = {
-    getItem(k){ return (window.AccountNS?.getItem?.(k)) ?? localStorage.getItem(k); },
-    setItem(k,v){
-      if (window.AccountNS?.setItem) window.AccountNS.setItem(k, v);
-      else localStorage.setItem(k, v);
-    }
+  getItem(k){ return (window.AccountNS?.getItem?.(k)) ?? localStorage.getItem(k); },
+    setItem(k,v){ if (window.AccountNS?.setItem) window.AccountNS.setItem(k, v); else localStorage.setItem(k, v); },
+    readJSON(k, def=[]){ try { return JSON.parse(this.getItem(k) || ''); } catch { return def; } },
+    writeJSON(k, obj){ this.setItem(k, JSON.stringify(obj ?? [])); }
   };
 
   /* ========= SIDEBAR ========= */
@@ -54,26 +67,42 @@
     try { LS.setItem(ACTIVE_TECH_KEY, String(name||"")); } catch {}
   }
 
-  function loadReports() {
-    try { return JSON.parse(LS.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
-  }
-  function saveReports(arr) {
-    LS.setItem(STORAGE_KEY, JSON.stringify(arr || []));
-  }
+  function loadReports() { return LS.readJSON(STORAGE_KEY, []); }
+  function saveReports(arr) { LS.writeJSON(STORAGE_KEY, arr || []); }
   function showToast(msg) {
     const t = $("toast"); if(!t) return;
     t.textContent = msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), 1600);
   }
 
   // ===== Cloud mirror adapters (per akun via LS wrapper)
-  async function monthlyGetLocal(){ try{ return JSON.parse(LS.getItem(STORAGE_KEY)||'[]'); }catch{ return []; } }
-  async function monthlySetLocal(arr){ LS.setItem(STORAGE_KEY, JSON.stringify(arr||[])); }
-  function pushMirrorSilent(){
-    try{
-      return window.MonthlySync?.queuePush
-        ? window.MonthlySync.queuePush(async ()=>JSON.parse(LS.getItem(STORAGE_KEY)||'[]'))
-        : Promise.resolve();
-    }catch{ return Promise.resolve(); }
+  async function monthlyGetLocal(){ return LS.readJSON(STORAGE_KEY, []); }
+  async function monthlySetLocal(arr){ LS.writeJSON(STORAGE_KEY, arr || []); }
+
+  // merge helper: gabung by id, pilih createdAt terbaru
+  function mergeByIdNewest(localArr, incomingArr){
+    const map = new Map();
+    (Array.isArray(localArr)?localArr:[]).forEach(r => map.set(r.id, r));
+    (Array.isArray(incomingArr)?incomingArr:[]).forEach(r => {
+      const ex = map.get(r.id);
+      const tNew = new Date(r.updatedAt || r.createdAt || 0).getTime();
+   const tOld = new Date(ex?.updatedAt || ex?.createdAt || 0).getTime();
+   if (!ex || tNew >= tOld) map.set(r.id, r);
+    });
+    return Array.from(map.values());
+  }
+
+  // Debounced push ke Drive
+  let _pushTimer = null;
+  async function pushMirrorSilent(){
+    if (_pushTimer) clearTimeout(_pushTimer);
+    _pushTimer = setTimeout(async () => {
+      try{
+        const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+        if (!ok && !window.DriveSync?.isLogged?.()) return;
+        const data = await monthlyGetLocal();
+        await window.DriveSync?.putJson?.(monthlyCloudFile(), { data });
+      } catch {}
+    }, 700);
   }
 
   // ===== pick month (URL -> latest in storage -> now)
@@ -537,33 +566,22 @@
 document.addEventListener('DOMContentLoaded', async () => {
   applyFilters?.(); // kalau kamu punya
 
-  // kalau masih ada varian lama (MonthlySync.pull), biarkan di sini sebagai fallback
-  try {
-    if (window.MonthlySync?.pull) {
-      await MonthlySync.pull(monthlyGetLocal, monthlySetLocal, applyFilters);
-    }
-  } catch (e) {
-    console.warn('[Monthly] fallback MonthlySync.pull gagal:', e);
-  }
-
-  function monthlyCloudFile() {
-    return `.monthly_data__${Auth.getUid()}.json`; // per-akun ✅
-  }
-
+  // Pull sederhana dari Drive → merge → simpan → render
   async function monthlyPullAndRender() {
     try {
-      const cloud = await DriveSync.getJson?.(monthlyCloudFile());
-      if (cloud?.data && Array.isArray(cloud.data)) {   // <-- pakai && (bukan &)
-        // merge versi kamu (ganti mergeLocalWith kalau namanya berbeda)
-        await MonthlyLocal.set(mergeLocalWith(cloud.data));
+      const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+      if (!ok && !window.DriveSync?.isLogged?.()) return;
+      const cloudObj = await window.DriveSync?.getJson?.(monthlyCloudFile());
+      const incoming = cloudObj?.data || [];
+      if (Array.isArray(incoming)) {
+        const merged = mergeByIdNewest(await monthlyGetLocal(), incoming);
+        await monthlySetLocal(merged);
+        applyFilters();
       }
     } catch (e) {
       console.warn('[Monthly] pull gagal:', e);
     }
-    renderMonthlyTable?.(); // render tabel kamu
   }
-
-  // panggil saat init/load
   await monthlyPullAndRender();
-});
+ });
 })();

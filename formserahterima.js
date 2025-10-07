@@ -71,16 +71,16 @@ function toNumDateDMY(s){const m=(s||'').match(/(\d{2})\/(\d{2})\/(\d{4})/); if(
 function formatTanggalSerahForPdf(val){ if(!val||!/^\d{4}-\d{2}-\d{2}$/.test(val)) return '-'; const [y,m,d]=val.split('-'); return `${d}/${m}/${y}`;}
 // Ganti implementasi jadi:
 function getPdfHistori(){
-  if (window.AccountStore?.nsKey) {
-    try { const key = window.AccountStore.nsKey('pdfHistori'); return JSON.parse(localStorage.getItem(key)||'[]'); } catch { return []; }
-  }
-  try { return JSON.parse(localStorage.getItem('pdfHistori')||'[]'); } catch { return []; }
-}
-function setPdfHistori(arr){
-  if (window.AccountStore?.saveHistori) return window.AccountStore.saveHistori(arr);
-  localStorage.setItem('pdfHistori', JSON.stringify(arr||[]));
-  return arr;
-}
+   try {
+     const key = window.AccountNS?.nsKey ? window.AccountNS.nsKey('pdfHistori') : 'pdfHistori';
+     return JSON.parse(localStorage.getItem(key) || '[]');
+   } catch { return []; }
+ }
+ function setPdfHistori(arr){
+   const key = window.AccountNS?.nsKey ? window.AccountNS.nsKey('pdfHistori') : 'pdfHistori';
+   localStorage.setItem(key, JSON.stringify(arr || []));
+   return arr;
+ }
 // preload cache scoped
 document.addEventListener('DOMContentLoaded', ()=>{ try{ window.AccountStore?.loadHistori?.(); }catch{} });
 
@@ -208,7 +208,7 @@ function renderTabel(){
  ********************/
 function openDb(){
   return new Promise((res, rej) => {
-    const req = indexedDB.open('PdfStorage'); // <— tanpa versi (ambil latest)
+    const req = indexedDB.open(currentDbName());
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains('pdfs')) {
@@ -224,7 +224,7 @@ function openDb(){
 }
 function clearIndexedDB(){
   return new Promise((resolve,reject)=>{
-    const request=indexedDB.deleteDatabase("PdfStorage");
+    const request=indexedDB.deleteDatabase(currentDbName());
     request.onsuccess=()=>resolve(true);
     request.onerror =()=>reject("Gagal hapus database IndexedDB");
     request.onblocked=()=>reject("Hapus database diblokir oleh tab lain");
@@ -232,7 +232,7 @@ function clearIndexedDB(){
 }
 async function getAllPdfBuffersFromIndexedDB(preferredOrderNames = []) {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open('PdfStorage'); // <— tanpa versi
+    const req = indexedDB.open(currentDbName());
     req.onerror = () => reject('Gagal buka IndexedDB');
     req.onsuccess = async (event) => {
       try {
@@ -299,6 +299,12 @@ async function fetchPdfBuffersBySelection(selected){
   }
   return out;
 }
+
+ function currentDbName(){
+   try { if (window.AccountNS?.currentDbName) return window.AccountNS.currentDbName('PdfStorage'); }
+   catch {}
+   return 'PdfStorage';
+ }
 
 /*****************************************
  *   AUTO-ANCHOR (fallback pakai PDF.js) *
@@ -469,6 +475,11 @@ async function generatePdfSerahTerima(){
           console.log('[STAMP]', { page: offset+i+1, file: name, meta, anchor: anchors[i], finalXY:{x,y} });
         }
 
+        // Jika file menandai skipStamp (contoh: PDF dari AppSheet), jangan stamp ulang
+       if (meta && meta.skipStamp === true) {
+         return; // lewati penulisan nama untuk halaman ini
+       }
+
         // Gambar nama (center)
         const size = 8;
         const text = (namaDiselesaikan || '').trim() || ' ';
@@ -628,7 +639,12 @@ async function generateCombinedSelected(){
 
       x += -55; y += 3; // bias kecil
       if (DEBUG_SHOW_MARKER) page.drawRectangle({ x:x-3, y:y-3, width:6, height:6, color: rgb(1,0.5,0) });
-
+      
+      // Jika file menandai skipStamp (contoh: PDF dari AppSheet), jangan stamp ulang
+       if (meta && meta.skipStamp === true) {
+         return; // lewati penulisan nama untuk halaman ini
+       }
+      
       if (namaDiselesaikan){
         const size = 8, w = helv.widthOfTextAtSize(namaDiselesaikan, size) || 0;
         page.drawText(namaDiselesaikan, { x: x - w/2, y: Math.max(30, Math.min(y, sz.height - 30)), size, font: helv, color: rgb(0,0,0) });
@@ -702,6 +718,11 @@ async function generateOriginalsOnly(selected){
       // bias global (sesuai fungsi lain)
       x += -55;
       y += 3;
+      
+      // Jika file menandai skipStamp (contoh: PDF dari AppSheet), jangan stamp ulang
+       if (meta && meta.skipStamp === true) {
+         return; // lewati penulisan nama untuk halaman ini
+       }
 
       // gambar nama kalau ada
       if (namaDiselesaikan){
@@ -739,7 +760,7 @@ async function generateOriginalsOnly(selected){
  ********************/
 (function(){
   const HISTORY_FILE = 'FST-History.json';
-  const KEY_REV = (window.AccountStore?.nsKey ? window.AccountStore.nsKey('pdfHistoriRev') : 'pdfHistoriRev');
+  const KEY_REV = (window.AccountNS?.nsKey ? window.AccountNS.nsKey('pdfHistoriRev') : 'pdfHistoriRev');
 
   const getLocalRev = () => Number(localStorage.getItem(KEY_REV) || 0);
   const setLocalRev = (rev) => localStorage.setItem(KEY_REV, String(rev || 0));
@@ -809,15 +830,13 @@ function manifestName(){ return `.bribox_histori__${getUidOrAnon()}.json`; }
     const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
     if (!ok && !window.DriveSync?.isLogged?.()) return;
 
-    // A) Coba manifest per-akun (Trackmate)
+    // A) Coba manifest per-akun (Trackmate) via getJson
     let manifestArr = null;
     try {
-      const txt = await window.DriveSync?.getTextFileByName?.(manifestName());
-      if (txt) {
-        const arr = JSON.parse(txt);
+      const obj = await window.DriveSync?.getJson?.(manifestName());
+      const arr = obj?.data;
         if (Array.isArray(arr)) manifestArr = arr;
-      }
-    } catch {}
+        } catch {}
 
     if (manifestArr) {
       // langsung pakai data manifest Trackmate
@@ -827,15 +846,15 @@ function manifestName(){ return `.bribox_histori__${getUidOrAnon()}.json`; }
     }
 
     // B) Fallback: file lama FST-History.json (pakai rev)
-    const cloud = await window.DriveSync.getJson('FST-History.json');
-    if (!cloud) return;
-
-    const cloudRev = Number(cloud.rev || 0);
+    const cloudObj = await window.DriveSync.getJson('FST-History.json');
+  if (!cloudObj) return;
+  const cloud = cloudObj.data || {};
+  const cloudRev = Number(cloud.rev || 0);
     const localRev = Number(localStorage.getItem(window.AccountStore?.nsKey
                         ? window.AccountStore.nsKey('pdfHistoriRev') : 'pdfHistoriRev') || 0);
 
     if (cloudRev && cloudRev >= localRev){
-      const arr = Array.isArray(cloud.data) ? cloud.data : [];
+    const arr = Array.isArray(cloud.data) ? cloud.data : [];
       setPdfHistori(arr);
       if (window.AccountStore?.setRev) window.AccountStore.setRev(cloudRev);
       else localStorage.setItem('pdfHistoriRev', String(cloudRev));
@@ -845,8 +864,7 @@ function manifestName(){ return `.bribox_histori__${getUidOrAnon()}.json`; }
       try {
         const data = getPdfHistori();
         const rev = Date.now();
-        if (window.AccountStore?.setRev) window.AccountStore.setRev(rev);
-        else localStorage.setItem('pdfHistoriRev', String(rev));
+        localStorage.setItem(KEY_REV, String(rev));
         await window.DriveSync.putJson('FST-History.json', { rev, data });
       } catch {}
     }
@@ -1016,7 +1034,7 @@ try {
     await window.DriveSync?.putJson?.('FST-History.json', { rev: revNow, data: [] });
 
     // sinkronkan rev lokal
-    const KEY_REV = (window.AccountStore?.nsKey ? window.AccountStore.nsKey('pdfHistoriRev') : 'pdfHistoriRev');
+    const KEY_REV = (window.AccountNS?.nsKey ? window.AccountNS.nsKey('pdfHistoriRev') : 'pdfHistoriRev');
     localStorage.setItem(KEY_REV, String(revNow));
   }
 } catch (e) { console.warn('push reset cloud gagal:', e); }
@@ -1232,9 +1250,9 @@ try {
     const my = targets[idx++];
 
     try{
-      // 1) FAST-PATH: pakai katalog per-akun (langsung by fileId)
+      // 1) FAST-PATH: katalog per-akun → langsung unduh
       if (my.hash && catMap[my.hash]?.fileId) {
-        const blob = await withTimeout(driveDownloadBlob(catMap[my.hash].fileId), 15000);
+        const blob = await withTimeout(window.DriveSync.fetchPdfBlob(catMap[my.hash].fileId), 15000);
         if (blob){
           await saveBlobToIndexedDB(my.hash, `${my.hash}.pdf`, blob, null);
           have.byHash.add(my.hash);
@@ -1243,24 +1261,20 @@ try {
         }
       }
 
-      // 2) CARI di Drive
-      let candidates = [];
-      if (my.hash) candidates = await withTimeout(driveFindByHash(my.hash), 8000);
-      if ((!candidates || !candidates.length) && my.name) {
-        candidates = await withTimeout(driveFindByName(my.name), 8000);
-      }
-
-      // 3) UNDUH kandidat terbaru
-      if (candidates && candidates.length){
-        candidates.sort((a,b)=> new Date(b.modifiedTime||0) - new Date(a.modifiedTime||0));
-        const picked = candidates[0];
-        const blob = await withTimeout(driveDownloadBlob(picked.id), 15000);
-        if (blob){
-          await saveBlobToIndexedDB(my.hash || null, picked.name || my.name || '(tanpa-nama)', blob, null);
-          if (my.hash) have.byHash.add(my.hash);
-          if (picked.name) have.byName.add(picked.name);
+       // 2) Resolve via API idempoten (hash → fileId) lalu unduh
+      if (my.hash && window.DriveSync?.getFileIdByHash) {
+        const fileId = await withTimeout(window.DriveSync.getFileIdByHash(my.hash), 8000);
+        if (fileId) {
+          const blob = await withTimeout(window.DriveSync.fetchPdfBlob(fileId), 15000);
+          if (blob){
+            await saveBlobToIndexedDB(my.hash, `${my.hash}.pdf`, blob, null);
+            have.byHash.add(my.hash);
+            if (my.name) have.byName.add(my.name);
+            continue;
+          }
         }
       }
+      // 3) Fallback terakhir (optional): kalau punya nama, boleh cari di DB lokal lain / skip
     } catch {
       // noop
     } finally {

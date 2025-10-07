@@ -67,12 +67,16 @@ function getUidOrAnon() {
   } catch { return 'anon'; }
 }
 const PUBLIC_HIST_KEY = 'pdfHistori';
-function userHistKey(){ return `${PUBLIC_HIST_KEY}::${getUidOrAnon()}`; }
+function userHistKey(){
+  if (window.AccountNS?.nsKey) return window.AccountNS.nsKey(PUBLIC_HIST_KEY);
+  return `${PUBLIC_HIST_KEY}::${getUidOrAnon()}`;
+}
 function syncHistAliasFromUser(){
   const raw = localStorage.getItem(userHistKey()) ?? '[]';
   localStorage.setItem(PUBLIC_HIST_KEY, raw);
 }
 let __lastUid = null;
+let __rehydrateTimer = null;
 async function watchAuthAndSwapStores(){
   const now = getUidOrAnon();
   if (now !== __lastUid){
@@ -80,19 +84,23 @@ async function watchAuthAndSwapStores(){
     try{ if (db){ db.close(); db=null; } }catch{}
     // refresh alias local
     syncHistAliasFromUser();
-    // rehydrate dari Drive (manifest) kalau ada
-    try{
-      const cloud = await driveLoadHistoriManifest();
-      if (Array.isArray(cloud)) {
-        localStorage.setItem(userHistKey(), JSON.stringify(cloud));
-        syncHistAliasFromUser();
-      }
-    }catch(e){ console.warn('rehydrate manifest fail:', e); }
-  }
-}
+    // rehydrate dari Drive (manifest) kalau ada — throttle 1x dalam 1 detik
+    if (__rehydrateTimer) clearTimeout(__rehydrateTimer);
+    __rehydrateTimer = setTimeout(async () => {
+      try{
+        const cloud = await driveLoadHistoriManifest();
+        if (Array.isArray(cloud)) {
+          localStorage.setItem(userHistKey(), JSON.stringify(cloud));
+          syncHistAliasFromUser();
+        }
+      }catch(e){ console.warn('rehydrate manifest fail:', e); }
+    }, 1000);
+   }
+ }
+
 watchAuthAndSwapStores();
 (window.DriveSync?.onAuthStateChanged) && window.DriveSync.onAuthStateChanged(watchAuthAndSwapStores);
-setInterval(watchAuthAndSwapStores, 1500);
+// cukup event auth + pageshow; interval 1500ms di-drop biar gak spam
 window.addEventListener('storage', (e)=>{ if (e.key && e.key.startsWith('pdfHistori::')) syncHistAliasFromUser(); });
 window.addEventListener('pageshow', watchAuthAndSwapStores);
 window.addEventListener('beforeunload', ()=>{ try{ if(db){ db.close(); db=null; } }catch{} });
@@ -177,7 +185,13 @@ const STORE_NAME  = "pdfs";
 const STORE_BLOBS = "pdfBlobs";
 let db;
 
-function currentDbName() { return 'PdfStorage'; }
+function currentDbName() {
+   try {
+     if (window.AccountNS?.currentDbName) return window.AccountNS.currentDbName('PdfStorage');
+   } catch {}
+   return 'PdfStorage';
+  }
+
 function openDb() {
   const DB_NAME = currentDbName();
   return new Promise((resolve, reject) => {
@@ -301,13 +315,14 @@ function dsReady() {
 // ambil manifest dari Drive
 async function driveLoadHistoriManifest() {
   try {
-    // DriveSync path
-    if (window.DriveSync?.getTextFileByName) {
-      const txt = await DriveSync.getTextFileByName(manifestName());
-      return txt ? JSON.parse(txt) : null;
+    // DriveSync path (versi baru)
+    if (window.DriveSync?.getJson) {
+      const obj = await DriveSync.getJson(manifestName());
+      // getJson() → { id, data }
+      return obj?.data ?? null;
     }
   } catch (e) {
-    console.warn('DriveSync getTextFileByName fail:', e);
+    console.warn('DriveSync getJson fail:', e);
   }
 
   // gapi fallback
@@ -331,12 +346,12 @@ async function driveSaveHistoriManifest(arr) {
   const json = JSON.stringify(Array.isArray(arr) ? arr : [], null, 0);
 
   // DriveSync path
-  if (window.DriveSync?.putTextFile) {
+  if (window.DriveSync?.putJson) {
     try {
-      await DriveSync.putTextFile(manifestName(), json, 'application/json'); // otomatis di root Bribox Kanpus
+      await DriveSync.putJson(manifestName(), JSON.parse(json));
       return true;
     } catch (e) {
-      console.warn('DriveSync putTextFile fail:', e);
+      console.warn('DriveSync putJson fail:', e);
     }
   }
 
@@ -388,7 +403,7 @@ function scheduleSaveManifest() {
 // ==== Upload PDF asli: DriveSync/DriveQueue first ====
 async function uploadViaDriveQueue(file, contentHash) {
   if (!file) throw new Error('File kosong');
-  if (!window.DriveQueue?.enqueueOrUpload && !window.DriveSync?.uploadPdf) {
+  if (!window.DriveQueue?.enqueueOrUpload && !window.DriveSync?.savePdfByHash) {
     return { ok: false, reason: 'NO_API' };
   }
 
@@ -403,8 +418,8 @@ async function uploadViaDriveQueue(file, contentHash) {
       showToast('☁️ Dijadwalkan ke Google Drive (offline/tertunda)', 2800, 'info');
       return { ok: true, immediate: false };
     }
-    // Fallback langsung via DriveSync
-    await DriveSync.uploadPdf(file, null, null, { simpleName: true });
+    // Fallback langsung via DriveSync (idempoten by hash)
+    await DriveSync.savePdfByHash(file, contentHash);
     showToast('☁️ Tersimpan ke Google Drive', 2500, 'success');
     return { ok: true, immediate: true };
   } catch (e) {

@@ -139,7 +139,14 @@
     readNsJSON,
     writeNsJSON,
     currentDbName,
-
+ // LS per-akun (alias sederhana, aman dipakai di modul lain)
+    getItem: (k) => {
+      try { return localStorage.getItem(nsKey(k)); } catch { return null; }
+    },
+   setItem: (k, v) => {
+      try { localStorage.setItem(nsKey(k), v); } catch {}
+      if (_MIRROR_KEYS.has(k)) syncAliasPublic(k);
+    },
     // mirror control
     setMirrorKeys,
     addMirrorKey,
