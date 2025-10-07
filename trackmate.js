@@ -720,6 +720,8 @@ try {
 
   // Upload idempoten: /Bribox Kanpus/pdfs/<sha256>.pdf
   const { fileId, deduped } = await DriveSync.savePdfByHash(file, contentHash);
+  console.log('[Drive] savePdfByHash OK:', { fileId, deduped, hash: contentHash });
+  await ensureInPdfs(fileId);
 
   // simpan katalog
   const catKey = `PdfCatalog__${uid}`;
@@ -772,6 +774,37 @@ const drivePromise = (async () => {
   try { await DriveSync?.savePdfByHash?.(file, contentHash); return true; } catch {}
   return false;
 })();
+
+// helper generik pakai DriveSync + fetch (Drive v3)
+async function ensureInPdfs(fileId) {
+  try {
+    // pastikan path folder ada -> ambil id
+    const rootId = await DriveSync.ensureFolder?.('Bribox Kanpus');  // atau ensureFolderPath(['Bribox Kanpus'])
+    const pdfsId = await DriveSync.ensureSubFolder?.(rootId, 'pdfs'); // atau ensureFolderPath([...,'pdfs'])
+    if (!pdfsId) return;
+
+    // ambil metadata parent saat ini
+    const token = await DriveSync.getAccessToken?.();
+    const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=parents`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const meta = await metaRes.json();
+    const curParents = (meta.parents || []).join(',');
+
+    // kalau belum di pdfs, tambahkan parent pdfs & (opsional) lepaskan parent lama
+    if (!meta.parents || !meta.parents.includes(pdfsId)) {
+      await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?addParents=${encodeURIComponent(pdfsId)}&removeParents=${encodeURIComponent(curParents)}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      console.log('[Drive] moved file into /Bribox Kanpus/pdfs');
+    }
+  } catch (e) {
+    console.warn('[Drive] ensureInPdfs failed:', e);
+  }
+}
+
 
 const [idbResult] = await Promise.all([idbPromise, drivePromise]);
 
