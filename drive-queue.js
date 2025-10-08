@@ -1,20 +1,19 @@
 /* drive-queue.js — Offline Upload Queue for Google Drive (BRIBOX KANPUS)
  *
  * Flow:
- * - Kalau Drive siap ⇒ upload langsung (silent).
- * - Kalau gagal/offline ⇒ simpan ke IndexedDB, lalu di-flush otomatis saat online/drive tersambung.
+ * - Jika online & Drive siap ⇒ upload langsung (silent).
+ * - Jika gagal/offline ⇒ simpan ke IndexedDB, lalu di-flush otomatis saat online/drive tersambung/tab aktif.
  *
  * Depends: drive-sync.js (window.DriveSync.*)
  */
-
 ;(() => {
-  const DB_NAME  = 'BriboxQueue';
-  const DB_STORE = 'uploads';
-  let   db       = null;
-  let   flushing = false;
+  const DB_NAME   = 'BriboxQueue';
+  const DB_STORE  = 'uploads';
+  let   db        = null;
+  let   flushing  = false;
   let   flushTimer = null;
 
-  // ---------- IndexedDB ----------
+  // ========== IndexedDB ==========
   function openDb() {
     return new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, 1);
@@ -28,7 +27,7 @@
         }
       };
       req.onsuccess = (e) => resolve(e.target.result);
-      req.onerror   = () => reject(new Error('Gagal buka IndexedDB'));
+      req.onerror   = () => reject(new Error('Gagal membuka IndexedDB'));
     });
   }
   async function getDb(){ return db || (db = await openDb()); }
@@ -38,14 +37,14 @@
     return storeTx('readwrite').then(store => new Promise((res, rej) => {
       const req = store.put(item);
       req.onsuccess = () => res(req.result);
-      req.onerror   = () => rej(new Error('Gagal simpan queue'));
+      req.onerror   = () => rej(new Error('Gagal menyimpan item queue'));
     }));
   }
   function del(id){
     return storeTx('readwrite').then(store => new Promise((res, rej) => {
       const req = store.delete(id);
       req.onsuccess = () => res(true);
-      req.onerror   = () => rej(new Error('Gagal hapus item queue'));
+      req.onerror   = () => rej(new Error('Gagal menghapus item queue'));
     }));
   }
 
@@ -62,7 +61,7 @@
         if (v.status === 'pending') return resolve(v);
         cur.continue();
       };
-      req.onerror = () => reject(new Error('Gagal baca index hash'));
+      req.onerror = () => reject(new Error('Gagal membaca index hash'));
     });
   }
 
@@ -84,7 +83,7 @@
     });
   }
 
-  // ---------- Helpers ----------
+  // ========== Helpers ==========
   const isOnline = () => (typeof navigator !== 'undefined' ? navigator.onLine : true);
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -94,15 +93,39 @@
     return false;
   }
 
-  // ---------- Core upload ----------
+  // ========== Core upload ==========
   async function tryUploadItem(item){
     const ready = await ensureDriveReady();
     if (!ready) throw new Error('Drive belum tersambung');
-    // Upload selalu ke ROOT Bribox Kanpus, nama file asli (simpleName:true)
-    return await DriveSync.uploadPdf(item.file, null, null, { simpleName: true });
+
+    // Upload ke ROOT "Bribox Kanpus" dengan nama asli.
+    const rootId = await DriveSync.ensureFolder();
+    const name   = item.name || (item.file && item.file.name) || 'noname.pdf';
+    const mime   = (item.file && item.file.type) || 'application/pdf';
+
+    // Meta tambahan agar jejak antrian tercatat di Drive
+    const metaExtra = {
+      appProperties: {
+        queued: '1',
+        queueHash: item.hash || '',
+        module: 'drive-queue'
+      }
+    };
+
+    // Gunakan API terbaru drive-sync.js
+    if (typeof DriveSync.uploadFileMultipart === 'function') {
+      return await DriveSync.uploadFileMultipart(name, item.file, rootId, mime, metaExtra);
+    }
+
+    // Fallback (sangat jarang kepakai): kalau tidak ada uploadFileMultipart tapi ada savePdfByHash
+    if (item.hash && typeof DriveSync.savePdfByHash === 'function') {
+      return await DriveSync.savePdfByHash(item.file, item.hash);
+    }
+
+    throw new Error('API DriveSync untuk upload tidak tersedia');
   }
 
-  // ---------- Flush logic ----------
+  // ========== Flush logic ==========
   async function flush() {
     if (flushing) return;
     flushing = true;
@@ -134,10 +157,10 @@
 
   function scheduleFlushSoon() {
     if (flushTimer) clearTimeout(flushTimer);
-    flushTimer = setTimeout(flush, 1500);
+    flushTimer = setTimeout(flush, 1200);
   }
 
-  // ---------- Queue API ----------
+  // ========== Queue API ==========
   async function enqueue(file, hash) {
     const item = {
       status    : 'pending',
@@ -149,19 +172,21 @@
     };
 
     // dedupe: jika hash sama & masih pending ⇒ jangan double
-    const dup = await findPendingByHash(item.hash);
-    if (dup) return dup.id;
+    if (item.hash) {
+      const dup = await findPendingByHash(item.hash);
+      if (dup) return dup.id;
+    }
 
     return await put(item);
   }
 
-  async function enqueueOrUpload(file, hash /*, _moduleName ignored */) {
+  async function enqueueOrUpload(file, hash /* _moduleName ignored */) {
     if (!file) throw new Error('File kosong');
 
     // kalau online & drive ready ⇒ coba upload langsung
     if (isOnline() && (await ensureDriveReady())) {
       try {
-        const res = await DriveSync.uploadPdf(file, null, null, { simpleName: true });
+        const res = await tryUploadItem({ file, name: file.name, hash: hash || null });
         return { uploaded: true, res };
       } catch {
         // jatuh ke queue
@@ -189,11 +214,16 @@
         });
       } catch {}
     }
+    // flush saat state auth dari DriveSync berubah (API baru)
+    try {
+      DriveSync?.onAuthStateChanged?.((ok) => { if (ok) scheduleFlushSoon(); });
+    } catch {}
+
     // flush awal setelah load
     scheduleFlushSoon();
   }
 
-  // ---------- Public API ----------
+  // ========== Public API ==========
   window.DriveQueue = {
     init,
     enqueue,

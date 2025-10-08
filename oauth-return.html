@@ -1,34 +1,70 @@
 <!doctype html>
-<meta charset="utf-8" />
-<title>Google OAuth Return</title>
-<script>
-(function () {
-  const hash = new URLSearchParams(location.hash.slice(1));
-  const token = hash.get('access_token');
-  const expires = parseInt(hash.get('expires_in') || '3600', 10);
-  const state = hash.get('state') || '/';
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <title>Google OAuth Return</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    html,body{height:100%}body{margin:0;display:grid;place-items:center;font:14px/1.4 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    .card{padding:18px 16px;border-radius:12px;border:1px solid #e5e7eb;background:#fff;box-shadow:0 10px 30px rgba(0,0,0,.06);max-width:520px}
+    .muted{color:#6b7280}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <b>Memproses login Google…</b>
+    <div class="muted">Jendela ini akan menutup otomatis.</div>
+    <noscript>Harap aktifkan JavaScript.</noscript>
+  </div>
 
-  if (!token) {
-    document.body.textContent = 'OAuth gagal: access_token tidak ada.';
-    return;
-  }
+  <script>
+  (function () {
+    function parseHash() {
+      var raw = (location.hash || "").replace(/^#/, "");
+      var qs = new URLSearchParams(raw);
+      return {
+        access_token: qs.get("access_token") || "",
+        expires_in:  parseInt(qs.get("expires_in") || "3600", 10) || 3600,
+        state:       qs.get("state") || "/"
+      };
+    }
 
-  // Simpan untuk resume di halaman lain (per-tab)
-  try {
-    const expAt = Date.now() + (expires * 1000);
-    sessionStorage.setItem('GDRV_AT', token);
-    sessionStorage.setItem('GDRV_EXP', String(expAt));
-  } catch (e) {}
+    var d = parseHash();
 
-  try {
-    if (window.opener && !window.opener.closed) {
-      window.opener.postMessage({ type: 'GDRV_TOKEN', access_token: token, expires_in: expires }, state.split('#')[0].split('?')[0]);
-      window.close();
+    if (!d.access_token) {
+      document.querySelector('.card').innerHTML =
+        '<b>OAuth gagal</b><div class="muted">access_token tidak ditemukan.</div>';
       return;
     }
-  } catch (e) { /* noop */ }
 
-  location.replace(state);
-})();
-</script>
-<body>Memproses login Google…</body>
+    // Simpan token untuk resume di tab yang sama (per-tab)
+    try {
+      var expAt = Date.now() + (d.expires_in * 1000);
+      sessionStorage.setItem('GDRV_AT',  d.access_token);
+      sessionStorage.setItem('GDRV_EXP', String(expAt));
+    } catch (e) {}
+
+    // Kirim token ke opener (popup flow). Target origin pakai "*" karena opener origin
+    // bisa cross-origin; pastikan PENERIMA memvalidasi event.origin.
+    try {
+      if (window.opener && !window.opener.closed) {
+        window.opener.postMessage(
+          { type: 'GDRV_TOKEN', access_token: d.access_token, expires_in: d.expires_in },
+          '*'
+        );
+        // beri jeda kecil supaya message sempat terkirim
+        setTimeout(function(){ window.close(); }, 300);
+        return;
+      }
+    } catch (e) { /* noop */ }
+
+    // Fallback: navigasi kembali ke state (biasanya URL asal sebelum login)
+    try {
+      location.replace(d.state.split('#')[0]);
+    } catch {
+      location.replace('/');
+    }
+  })();
+  </script>
+</body>
+</html>

@@ -43,7 +43,7 @@
         <!-- Submenu -->
         <div id="nav-monthly" class="submenu">
           <a href="monthly-form.html">Monthly Report Form</a>
-          <a href="monthly-data.html" class="active">Monthly Report Data</a>
+          <a href="monthly-data.html" class="active" aria-current="page">Monthly Report Data</a>
         </div>
       </nav>
       <div class="sidebar-credit" aria-label="Project credit">
@@ -54,9 +54,9 @@
     <!-- Main -->
     <main class="main">
       <header class="dashboard-header">
-        <button class="sidebar-toggle-btn" onclick="toggleSidebar()">☰</button>
+        <button class="sidebar-toggle-btn" type="button" onclick="toggleSidebar()">☰</button>
         <h1>Monthly Report Data</h1>
-        <button id="toggleModeBtn" onclick="toggleDarkMode()">🌙</button>
+        <button id="toggleModeBtn" type="button" onclick="toggleDarkMode()">🌙</button>
       </header>
 
       <!-- ====== KARTU KONTROL (filter + tombol aksi) ====== -->
@@ -67,8 +67,8 @@
         </div>
         <div class="controls-right">
           <a class="btn info" href="monthly-form.html">Tambah Data</a>
-          <button id="btnExportXlsx" class="btn primary">Export XLSX</button>
-          <button id="btnReset" class="btn danger">Reset Bulan</button>
+          <button id="btnExportXlsx" class="btn primary" type="button">Export XLSX</button>
+          <button id="btnReset" class="btn danger" type="button">Reset Bulan</button>
         </div>
       </section>
 
@@ -189,8 +189,9 @@
           const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
           if(!ok && !window.DriveSync?.isLogged?.()) return;
           const local = await getLocal();
-          await window.DriveSync.putJson(fileName(), local||[]);
-        }catch{}
+          // === penting: kirim ber-envelope agar cocok dengan pull (cloud?.data)
+          await window.DriveSync.putJson(fileName(), { data: local || [] });
+        }catch(e){ console.warn('[MonthlySync.push] gagal:', e); }
       }, 900);
     }
 
@@ -200,11 +201,17 @@
           const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
           if(!ok && !window.DriveSync?.isLogged?.()) return;
           const cloud = await window.DriveSync.getJson(fileName());
-          if(!Array.isArray(cloud?.data)) return;
-          const merged = merge((await getLocal())||[], cloud.data);
+
+          // dukung dua format: {data:[...]} (baru) atau langsung array (lama)
+          const incoming = Array.isArray(cloud?.data) ? cloud.data
+                           : Array.isArray(cloud) ? cloud
+                           : null;
+          if(!Array.isArray(incoming)) return;
+
+          const merged = merge((await getLocal())||[], incoming);
           await setLocal(merged);
           onAfter && onAfter();
-        }catch{}
+        }catch(e){ console.warn('[MonthlySync.pull] gagal:', e); }
       },
       queuePush(getLocal){ return pushDebounced(getLocal); }
     };
@@ -233,7 +240,7 @@
       // tarik dari Drive -> merge -> render ulang
       try {
         await MonthlySync.pull(monthlyGetLocal, monthlySetLocal, () => {
-          if (typeof window.applyFilters === 'function')      { try { window.applyFilters(); } catch {} }
+          if (typeof window.applyFilters === 'function')            { try { window.applyFilters(); } catch {} }
           else if (typeof window.renderMonthlyTable === 'function') { try { window.renderMonthlyTable(); } catch {} }
         });
       } catch {}

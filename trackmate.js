@@ -7,6 +7,7 @@
 // - Fallback ke gapi kalau memang ada gapi client (opsional)
 // - Parsing & output lama dipertahankan, posisi TTD aman (auto-calibrate)
 
+'use strict';
 
 // ---------- HASH UTIL ----------
 async function sha256File(file) {
@@ -24,20 +25,20 @@ const sidebar   = document.querySelector('.sidebar');
 const overlay   = document.getElementById('sidebarOverlay') || document.querySelector('.sidebar-overlay');
 const sidebarLinks = document.querySelectorAll('.sidebar a');
 
-function openSidebar(){ sidebar.classList.add('visible'); overlay?.classList.add('show'); document.body.style.overflow='hidden'; }
-function closeSidebar(){ sidebar.classList.remove('visible'); overlay?.classList.remove('show'); document.body.style.overflow=''; }
-function toggleSidebar(){ sidebar.classList.contains('visible')?closeSidebar():openSidebar(); }
+function openSidebar(){ sidebar?.classList.add('visible'); overlay?.classList.add('show'); document.body.style.overflow='hidden'; }
+function closeSidebar(){ sidebar?.classList.remove('visible'); overlay?.classList.remove('show'); document.body.style.overflow=''; }
+function toggleSidebar(){ (sidebar?.classList.contains('visible') ? closeSidebar() : openSidebar()); }
 window.toggleSidebar = toggleSidebar;
 
 overlay?.addEventListener('click', closeSidebar);
 document.addEventListener('click', (e)=> {
   const isMobile = window.matchMedia('(max-width: 768px)').matches;
   if (!isMobile) return;
-  const clickInsideSidebar = sidebar.contains(e.target);
-  const clickOnToggle = e.target.closest('.sidebar-toggle-btn');
-  if (sidebar.classList.contains('visible') && !clickInsideSidebar && !clickOnToggle) closeSidebar();
+  const clickInsideSidebar = sidebar?.contains(e.target);
+  const clickOnToggle = e.target.closest?.('.sidebar-toggle-btn');
+  if (sidebar?.classList.contains('visible') && !clickInsideSidebar && !clickOnToggle) closeSidebar();
 });
-document.addEventListener('keydown', (e)=>{ if (e.key==='Escape' && sidebar.classList.contains('visible')) closeSidebar(); });
+document.addEventListener('keydown', (e)=>{ if (e.key==='Escape' && sidebar?.classList.contains('visible')) closeSidebar(); });
 sidebarLinks.forEach(a=>a.addEventListener('click', closeSidebar));
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -47,10 +48,8 @@ document.addEventListener('DOMContentLoaded', function () {
   else if (title.includes('appsheet'))  body.setAttribute('data-page', 'appsheet');
   else if (title.includes('serah'))     body.setAttribute('data-page', 'serah');
   else if (title.includes('merge'))     body.setAttribute('data-page', 'merge');
-
   try { window.DriveQueue?.init?.(); } catch {}
 });
-
 
 // ---------- QUERY DOM ----------
 const fileInput    = document.getElementById('pdfFile');
@@ -84,7 +83,7 @@ async function watchAuthAndSwapStores(){
     try{ if (db){ db.close(); db=null; } }catch{}
     // refresh alias local
     syncHistAliasFromUser();
-    // rehydrate dari Drive (manifest) kalau ada — throttle 1x dalam 1 detik
+    // rehydrate dari Drive (manifest) — throttle 1x dalam 1 detik
     if (__rehydrateTimer) clearTimeout(__rehydrateTimer);
     __rehydrateTimer = setTimeout(async () => {
       try{
@@ -96,11 +95,9 @@ async function watchAuthAndSwapStores(){
       }catch(e){ console.warn('rehydrate manifest fail:', e); }
     }, 1000);
    }
- }
-
+}
 watchAuthAndSwapStores();
-(window.DriveSync?.onAuthStateChanged) && window.DriveSync.onAuthStateChanged(watchAuthAndSwapStores);
-// cukup event auth + pageshow; interval 1500ms di-drop biar gak spam
+window.DriveSync?.onAuthStateChanged?.(watchAuthAndSwapStores);
 window.addEventListener('storage', (e)=>{ if (e.key && e.key.startsWith('pdfHistori::')) syncHistAliasFromUser(); });
 window.addEventListener('pageshow', watchAuthAndSwapStores);
 window.addEventListener('beforeunload', ()=>{ try{ if(db){ db.close(); db=null; } }catch{} });
@@ -186,11 +183,11 @@ const STORE_BLOBS = "pdfBlobs";
 let db;
 
 function currentDbName() {
-   try {
-     if (window.AccountNS?.currentDbName) return window.AccountNS.currentDbName('PdfStorage');
-   } catch {}
-   return 'PdfStorage';
-  }
+  try {
+    if (window.AccountNS?.currentDbName) return window.AccountNS.currentDbName('PdfStorage');
+  } catch {}
+  return 'PdfStorage';
+}
 
 function openDb() {
   const DB_NAME = currentDbName();
@@ -297,7 +294,7 @@ async function savePdfToIndexedDB_keepSchema(fileOrBlob, { contentHash } = {}) {
 const MANIFEST_BASENAME = '.bribox_histori';
 function manifestName() { return `${MANIFEST_BASENAME}__${getUidOrAnon()}.json`; }
 
-// helper koding base64 (untuk gapi fallback)
+// helper base64 (untuk gapi fallback)
 function base64FromBlobAsync(blob){
   return new Promise((resolve, reject) => {
     const fr = new FileReader();
@@ -307,18 +304,11 @@ function base64FromBlobAsync(blob){
   });
 }
 
-// ==== DriveSync first (tanpa gapi) ====
-function dsReady() {
-  try { return !!(window.DriveSync?.isLogged?.()); } catch { return false; }
-}
-
 // ambil manifest dari Drive
 async function driveLoadHistoriManifest() {
   try {
-    // DriveSync path (versi baru)
     if (window.DriveSync?.getJson) {
       const obj = await DriveSync.getJson(manifestName());
-      // getJson() → { id, data }
       return obj?.data ?? null;
     }
   } catch (e) {
@@ -686,8 +676,8 @@ copyBtn?.addEventListener("click", async () => {
     } catch {}
     if (copyBtn) { copyBtn.textContent = "✔ Copied!"; setTimeout(() => (copyBtn.textContent = "Copy"), 1500); }
 
-    // validasi file
-    const file = fileInput?.files?.[0];
+    // validasi file (pakai fallback window.currentFile)
+    const file = (fileInput?.files?.[0]) || (window.currentFile || null);
     if (!file) { showToast("⚠ Tidak ada file PDF yang dipilih.", 3500, "warn"); return; }
 
     // hash
@@ -709,41 +699,43 @@ copyBtn?.addEventListener("click", async () => {
       uploadedAt: new Date().toISOString()
     };
 
-   // === Drive idempoten + katalog per-akun ===
-let uploadedViaHash = false;   
-try {
-  const uid = (window.Auth?.getUid?.() || 'anon');
-  if (uid === 'anon') { alert('Harus login dulu.'); return; }
+    // === Drive idempoten + katalog per-akun ===
+    let uploadedViaHash = false;
+    try {
+      const uid = (window.Auth?.getUid?.() || 'anon');
+      if (uid === 'anon') {
+        alert('Harus login dulu untuk menyimpan ke Drive.');
+      } else {
+        const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+        if (!ok && !window.DriveSync?.isLogged?.()) {
+          showToast('ℹ Klik "Connect Google Drive" untuk menyalakan sinkronisasi.', 3500, 'info');
+        } else {
+          // Upload idempoten: /Bribox Kanpus/pdfs/<sha256>.pdf
+          const { fileId, deduped } = await DriveSync.savePdfByHash(file, contentHash);
+          console.log('[Drive] savePdfByHash OK:', { fileId, deduped, hash: contentHash });
+          await ensureInPdfs(fileId);
 
-  const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
-  if (!ok && !window.DriveSync?.isLogged?.()) { alert('Silakan klik "Connect Google Drive" dulu.'); return; }
+          // simpan katalog
+          const catKey = `PdfCatalog__${uid}`;
+          const catMap = JSON.parse(localStorage.getItem(catKey) || '{}');
+          catMap[contentHash] = { fileId, name:file.name, size:file.size, mime:file.type, at:Date.now() };
+          localStorage.setItem(catKey, JSON.stringify(catMap));
 
-  // Upload idempoten: /Bribox Kanpus/pdfs/<sha256>.pdf
-  const { fileId, deduped } = await DriveSync.savePdfByHash(file, contentHash);
-  console.log('[Drive] savePdfByHash OK:', { fileId, deduped, hash: contentHash });
-  await ensureInPdfs(fileId);
-
-  // simpan katalog
-  const catKey = `PdfCatalog__${uid}`;
-  const catMap = JSON.parse(localStorage.getItem(catKey) || '{}');
-  catMap[contentHash] = { fileId, name:file.name, size:file.size, mime:file.type, at:Date.now() };
-  localStorage.setItem(catKey, JSON.stringify(catMap));
-
-  uploadedViaHash = true; // <-- tandai sudah sukses lewat jalur idempoten
-  showToast(deduped ? '☁️ Pakai file yang sudah ada di Drive' : '☁️ PDF diunggah ke Drive', 2500, 'success');
-} catch (e) {
-  console.warn('[Trackmate] Drive idempoten gagal:', e);
-  // jangan return; lanjut simpan histori lokal supaya UX tetap jalan
-}
+          uploadedViaHash = true; // sukses lewat jalur idempoten
+          showToast(deduped ? '☁️ Pakai file yang sudah ada di Drive' : '☁️ PDF diunggah ke Drive', 2500, 'success');
+        }
+      }
+    } catch (e) {
+      console.warn('[Trackmate] Drive idempoten gagal:', e);
+      // lanjut simpan histori lokal supaya UX tetap jalan
+    }
 
     // duplikat?
     const histori = readHistoriSafe();
     const exists = histori.length > 0 && histori.some(r => isDuplicateRow(r, file, contentHash));
     if (exists) {
       // tetap coba upload (DriveQueue akan dedupe)
-      try {
-        await tryUploadOriginalToDrive(file, contentHash);
-      } catch {}
+      try { await tryUploadOriginalToDrive(file, contentHash); } catch {}
       showToast("ℹ Sudah ada di histori", 3000, "info");
       return;
     }
@@ -755,64 +747,65 @@ try {
     // paralel: IDB + Drive
     const TIMEOUT_MS = 12000;
 
-const idbPromise = Promise.race([
-  (async () => {
-    await savePdfToIndexedDB_keepSchema(file, { contentHash });
-    // Hapus baris di bawah jika fungsi ini meng-upload ke Drive:
-    // await saveBlobByHash(file, contentHash);
-  })(),
-  new Promise((_, rej) => setTimeout(() => rej(new Error("IDB timeout")), TIMEOUT_MS))
-]).catch(err => { console.warn("IndexedDB gagal/timeout:", err); return null; });
+    const idbPromise = Promise.race([
+      (async () => {
+        await savePdfToIndexedDB_keepSchema(file, { contentHash });
+        // Jika ingin juga menyimpan ke store blob keyed-by-hash:
+        // await saveBlobByHash(file, contentHash);
+      })(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("IDB timeout")), TIMEOUT_MS))
+    ]).catch(err => { console.warn("IndexedDB gagal/timeout:", err); return null; });
 
-const drivePromise = (async () => {
-  if (uploadedViaHash) return true; // sudah sukses via savePdfByHash di atas
-  try {
-    const res = await window.DriveQueue?.enqueueOrUpload?.(file, contentHash);
-    try { await window.DriveQueue?.flush?.(); } catch {}
-    if (res?.uploaded) return true;
-  } catch {}
-  try { await DriveSync?.savePdfByHash?.(file, contentHash); return true; } catch {}
-  return false;
-})();
+    const drivePromise = (async () => {
+      if (uploadedViaHash) return true; // sudah sukses via savePdfByHash di atas
+      try {
+        const res = await window.DriveQueue?.enqueueOrUpload?.(file, contentHash);
+        try { await window.DriveQueue?.flush?.(); } catch {}
+        if (res?.uploaded) return true;
+      } catch {}
+      try { await DriveSync?.savePdfByHash?.(file, contentHash); return true; } catch {}
+      return false;
+    })();
 
-// helper generik pakai DriveSync + fetch (Drive v3)
-async function ensureInPdfs(fileId) {
-  try {
-    // pastikan path folder ada -> ambil id
-    const rootId = await DriveSync.ensureFolder?.('Bribox Kanpus');  // atau ensureFolderPath(['Bribox Kanpus'])
-    const pdfsId = await DriveSync.ensureSubFolder?.(rootId, 'pdfs'); // atau ensureFolderPath([...,'pdfs'])
-    if (!pdfsId) return;
+    // ===== Helper: pastikan file ada di subfolder /pdfs (DriveSync API valid) =====
+    async function ensureInPdfs(fileId) {
+      try {
+        const rootId = await DriveSync.ensureFolder?.();     // id folder "Bribox Kanpus"
+        const pdfsId = await DriveSync.ensureSub?.('pdfs');  // id subfolder "pdfs"
+        if (!rootId || !pdfsId) return;
 
-    // ambil metadata parent saat ini
-    const token = await DriveSync.getAccessToken?.();
-    const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=parents`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    const meta = await metaRes.json();
-    const curParents = (meta.parents || []).join(',');
+        const token = DriveSync.getAccessToken?.();
+        if (!token) return;
 
-    // kalau belum di pdfs, tambahkan parent pdfs & (opsional) lepaskan parent lama
-    if (!meta.parents || !meta.parents.includes(pdfsId)) {
-      await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?addParents=${encodeURIComponent(pdfsId)}&removeParents=${encodeURIComponent(curParents)}`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
-      });
-      console.log('[Drive] moved file into /Bribox Kanpus/pdfs');
+        // cek parent saat ini
+        const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=parents`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!metaRes.ok) return;
+        const meta = await metaRes.json();
+        const curParents = (meta.parents || []).join(',');
+
+        // jika belum punya parent "pdfs", tambahkan + (opsional) hapus parent lama
+        if (!meta.parents || !meta.parents.includes(pdfsId)) {
+          await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?addParents=${encodeURIComponent(pdfsId)}&removeParents=${encodeURIComponent(curParents)}`, {
+            method: 'PATCH',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+          });
+          console.log('[Drive] moved file into /Bribox Kanpus/pdfs');
+        }
+      } catch (e) {
+        console.warn('[Drive] ensureInPdfs failed:', e);
+      }
     }
-  } catch (e) {
-    console.warn('[Drive] ensureInPdfs failed:', e);
-  }
-}
 
+    const [idbResult] = await Promise.all([idbPromise, drivePromise]);
 
-const [idbResult] = await Promise.all([idbPromise, drivePromise]);
-
-if (idbResult === null) {
-  showToast("⚠ Histori disimpan. File PDF asli gagal disimpan lokal (coba ulang).", 5000);
-} else {
-  showToast("✔ Berhasil disimpan ke histori", 3000);
-}
+    if (idbResult === null) {
+      showToast("⚠ Histori disimpan. File PDF asli gagal disimpan lokal (coba ulang).", 5000);
+    } else {
+      showToast("✔ Berhasil disimpan ke histori", 3000);
+    }
 
   } catch (err) {
     console.error("Copy handler error:", err);

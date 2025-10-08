@@ -1,4 +1,4 @@
-// monthly-data.js — XLSX export + per-akun storage + Drive mirror
+// monthly-data.js — XLSX export + per-akun storage + Drive mirror (clean)
 (function () {
   const STORAGE_KEY = "monthlyReports";
   const ACTIVE_TECH_KEY = "activeTechnician";
@@ -19,41 +19,11 @@
 
   /* ========== USER-SCOPE (per akun) ========== */
   const LS = {
-  getItem(k){ return (window.AccountNS?.getItem?.(k)) ?? localStorage.getItem(k); },
+    getItem(k){ return (window.AccountNS?.getItem?.(k)) ?? localStorage.getItem(k); },
     setItem(k,v){ if (window.AccountNS?.setItem) window.AccountNS.setItem(k, v); else localStorage.setItem(k, v); },
     readJSON(k, def=[]){ try { return JSON.parse(this.getItem(k) || ''); } catch { return def; } },
     writeJSON(k, obj){ this.setItem(k, JSON.stringify(obj ?? [])); }
   };
-
-  /* ========= SIDEBAR ========= */
-  const sidebar   = document.querySelector('.sidebar');
-  const overlay   = document.getElementById('sidebarOverlay') || document.querySelector('.sidebar-overlay');
-  const sidebarLinks = document.querySelectorAll('.sidebar a');
-
-  function openSidebar() { sidebar?.classList.add('visible'); overlay?.classList.add('show'); document.body.style.overflow = 'hidden'; }
-  function closeSidebar() { sidebar?.classList.remove('visible'); overlay?.classList.remove('show'); document.body.style.overflow = ''; }
-  function toggleSidebar() { sidebar?.classList.contains('visible') ? closeSidebar() : openSidebar(); }
-  window.toggleSidebar = toggleSidebar;
-
-  overlay?.addEventListener('click', closeSidebar);
-  document.addEventListener('click', (e) => {
-    const isMobile = window.matchMedia('(max-width: 768px)').matches;
-    if (!isMobile) return;
-    const clickInsideSidebar = sidebar?.contains(e.target);
-    const clickOnToggle = e.target.closest?.('.sidebar-toggle-btn');
-    if (sidebar?.classList.contains('visible') && !clickInsideSidebar && !clickOnToggle) closeSidebar();
-  });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && sidebar?.classList.contains('visible')) closeSidebar(); });
-  sidebarLinks.forEach(a => a.addEventListener('click', closeSidebar));
-
-  document.addEventListener('DOMContentLoaded', function () {
-    const title = document.querySelector('.dashboard-header h1')?.textContent?.toLowerCase() || "";
-    const body = document.body;
-    if (title.includes('trackmate'))      body.setAttribute('data-page', 'trackmate');
-    else if (title.includes('appsheet'))  body.setAttribute('data-page', 'appsheet');
-    else if (title.includes('serah'))     body.setAttribute('data-page', 'serah');
-    else if (title.includes('merge'))     body.setAttribute('data-page', 'merge');
-  });
 
   // ===== utils
   const $ = (id) => document.getElementById(id);
@@ -78,15 +48,19 @@
   async function monthlyGetLocal(){ return LS.readJSON(STORAGE_KEY, []); }
   async function monthlySetLocal(arr){ LS.writeJSON(STORAGE_KEY, arr || []); }
 
-  // merge helper: gabung by id, pilih createdAt terbaru
+  // merge helper: gabung by id, pilih createdAt/updatedAt terbaru
   function mergeByIdNewest(localArr, incomingArr){
     const map = new Map();
-    (Array.isArray(localArr)?localArr:[]).forEach(r => map.set(r.id, r));
+    (Array.isArray(localArr)?localArr:[]).forEach(r => {
+      const id = r.id || [r.month,r.date,r.teknisi,r.createdAt].filter(Boolean).join('|');
+      map.set(id, r);
+    });
     (Array.isArray(incomingArr)?incomingArr:[]).forEach(r => {
-      const ex = map.get(r.id);
+      const id = r.id || [r.month,r.date,r.teknisi,r.createdAt].filter(Boolean).join('|');
+      const ex = map.get(id);
       const tNew = new Date(r.updatedAt || r.createdAt || 0).getTime();
-   const tOld = new Date(ex?.updatedAt || ex?.createdAt || 0).getTime();
-   if (!ex || tNew >= tOld) map.set(r.id, r);
+      const tOld = new Date(ex?.updatedAt || ex?.createdAt || 0).getTime();
+      if (!ex || tNew >= tOld) map.set(id, r);
     });
     return Array.from(map.values());
   }
@@ -116,7 +90,7 @@
       if (months[0]) return months[0];
     }
     const d = new Date();
-    return `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
+    return `${d.getFullYear()}-${d.getMonth()+1 < 9 ? '0' : ''}${d.getMonth()+1}`;
   }
   const month = pickActiveMonth();
 
@@ -149,7 +123,9 @@
         const hay = [
           r.tanggalLabel,r.date,r.teknisi,r.lokasiDari,r.lokasiKe,r.jenis,r.detail,r.status,
           r.keterangan,r.jamMasuk,r.jamBerangkat,r.jamTiba,r.jamMulai,r.jamSelesai,
-          r.durasiPenyelesaianStr,r.waktuTempuhStr
+          r.durasiPenyelesaianStr,r.waktuTempuhStr,
+          // ikutkan angka sebagai teks sederhana
+          String(r.jarakKm ?? r.jarak ?? '')
         ].map(norm).join(" ");
         return hay.includes(q);
       });
@@ -160,23 +136,23 @@
     if (empty) empty.style.display = rows.length ? "none" : "block";
     if (typeof tblCap !== 'undefined' && tblCap) tblCap.textContent = `${rows.length} entri ditampilkan`;
   }
-  // expose buat HTML yang manggil window.applyFilters()
   window.applyFilters = applyFilters;
 
   const esc = (s)=> String(s).replace(/[&<>"']/g,(m)=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
-
-  function fmtJam(v){
+  const fmtJam = (v) => {
     if (v == null || v === "") return "";
     const m = String(v).match(/^(\d{1,2}):(\d{2})$/);
     if (!m) return String(v);
     return `${parseInt(m[1], 10)}:${m[2]}`; // 07:05 -> 7:05
-  }
+  };
 
   function renderTable(rows){
     if(!tbody) return;
-    tbody.innerHTML = rows.map(r=>`
-      <tr data-id="${r.id}">
-        <td>${esc(r.tanggalLabel||r.date)}</td>
+    tbody.innerHTML = rows.map(r=>{
+      const jarakVal = (r.jarakKm != null ? r.jarakKm : r.jarak); // dukung dua kunci
+      return `
+      <tr data-id="${esc(r.id)}">
+        <td>${esc(r.tanggalLabel||r.date||"-")}</td>
         <td class="col-teknisi">${esc(r.teknisi||"-")}</td>
         <td>${esc(r.lokasiDari||"-")}</td>
         <td>${esc(r.lokasiKe||"-")}</td>
@@ -189,11 +165,12 @@
         <td>${esc(fmtJam(r.jamMulai))}</td>
         <td>${esc(fmtJam(r.jamSelesai))}</td>
         <td>${esc(r.durasiPenyelesaianStr||"0:00")}</td>
-        <td class="num">${r.jarakKm||0}</td>
+        <td class="num">${jarakVal==null || jarakVal==="" ? "" : jarakVal}</td>
         <td>${esc(r.waktuTempuhStr||"0:00")}</td>
         <td>${esc(r.keterangan||"")}</td>
-        <td><button class="btn-del" data-id="${r.id}">Hapus</button></td>
-      </tr>`).join("");
+        <td><button class="btn-del" data-id="${esc(r.id)}">Hapus</button></td>
+      </tr>`;
+    }).join("");
 
     // Hapus baris
     tbody.querySelectorAll(".btn-del").forEach(btn=>{
@@ -201,7 +178,7 @@
         const id = btn.getAttribute("data-id");
         if(!id) return;
         if(!confirm("Hapus entri ini?")) return;
-        const kept = loadReports().filter(x=>x.id!==id);
+        const kept = loadReports().filter(x=>(x.id||"")!==id);
         saveReports(kept);
         showToast("Entri dihapus.");
         applyFilters();
@@ -215,7 +192,7 @@
         const id = tr.getAttribute("data-id");
         if (!id) return;
         if (!confirm("Hapus entri ini?")) return;
-        const kept = loadReports().filter(x=>x.id!==id);
+        const kept = loadReports().filter(x=>(x.id||"")!==id);
         saveReports(kept);
         showToast("Entri dihapus.");
         applyFilters();
@@ -322,6 +299,7 @@
       }
 
       list.forEach((r, idx)=>{
+        const jarakVal = (r.jarakKm != null ? r.jarakKm : r.jarak);
         rows.push({
           tanggal: idx === 0 ? tanggalLabel(year, month, d) : "",
           teknisi: r.teknisi || "",
@@ -336,7 +314,7 @@
           jamMulai: r.jamMulai || "",
           jamSelesai: r.jamSelesai || "",
           waktuPenyelesaian: hmToExcelTime(r.durasiPenyelesaianStr || r.waktuPenyelesaian || ""),
-          jarak: (r.jarakKm === "" || r.jarakKm == null) ? null : Number(r.jarakKm || 0),
+          jarak: (jarakVal === "" || jarakVal == null) ? null : Number(jarakVal || 0),
           waktuTempuh: hmToExcelTime(r.waktuTempuhStr || r.waktuTempuh || ""),
           keterangan: r.keterangan || ""
         });
@@ -417,11 +395,11 @@
           dr.jenis,
           dr.detail,
           dr.status,
-          dr.jamMasuk ? hmToExcelTime(dr.jamMasuk)*1 : null,
-          dr.jamBerangkat ? hmToExcelTime(dr.jamBerangkat)*1 : null,
-          dr.jamTiba ? hmToExcelTime(dr.jamTiba)*1 : null,
-          dr.jamMulai ? hmToExcelTime(dr.jamMulai)*1 : null,
-          dr.jamSelesai ? hmToExcelTime(dr.jamSelesai)*1 : null,
+          dr.jamMasuk ? hmToExcelTime(dr.jamMasuk) : null,
+          dr.jamBerangkat ? hmToExcelTime(dr.jamBerangkat) : null,
+          dr.jamTiba ? hmToExcelTime(dr.jamTiba) : null,
+          dr.jamMulai ? hmToExcelTime(dr.jamMulai) : null,
+          dr.jamSelesai ? hmToExcelTime(dr.jamSelesai) : null,
           dr.waktuPenyelesaian,
           dr.jarak,
           dr.waktuTempuh,
@@ -449,13 +427,9 @@
       totalCell.font = { bold: true };
       totalCell.alignment = { vertical:'middle', horizontal:'center' };
 
-      const sumWP = dataRows.reduce((a,r)=> a + ((r.waktuPenyelesaian ?? 0) * 24*60), 0);
-      const sumJT = dataRows.reduce((a,r)=> a + (Number(r.jarak)||0), 0);
-      const sumWT = dataRows.reduce((a,r)=> a + ((r.waktuTempuh ?? 0) * 24*60), 0);
-
-      ws.getCell(`M${totalRowIdx}`).value = { formula:`SUM(M${startRow}:M${endRow})`, result: minutesToExcelTime(sumWP) };
-      ws.getCell(`N${totalRowIdx}`).value = { formula:`SUM(N${startRow}:N${endRow})`, result: sumJT };
-      ws.getCell(`O${totalRowIdx}`).value = { formula:`SUM(O${startRow}:O${endRow})`, result: minutesToExcelTime(sumWT) };
+      ws.getCell(`M${totalRowIdx}`).value = { formula:`SUM(M${startRow}:M${endRow})` };
+      ws.getCell(`N${totalRowIdx}`).value = { formula:`SUM(N${startRow}:N${endRow})` };
+      ws.getCell(`O${totalRowIdx}`).value = { formula:`SUM(O${startRow}:O${endRow})` };
 
       ws.getCell(`M${totalRowIdx}`).numFmt = '[h]:mm';
       ws.getCell(`O${totalRowIdx}`).numFmt = '[h]:mm';
@@ -469,7 +443,6 @@
         cell.border = { top:{style:'thin'}, left:{style:'thin'}, bottom:{style:'thin'}, right:{style:'thin'} };
       }
       totalRow.height = 18; totalRow.commit && totalRow.commit();
-      rIdx++;
 
       if (wb.calcProperties) wb.calcProperties.fullCalcOnLoad = true;
 
@@ -479,9 +452,7 @@
       ws.getCell(`N${sigTop}`).value = `Jakarta, ${new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'})}`;
       ws.getCell(`N${sigTop}`).alignment = { horizontal: 'center', vertical: 'middle' };
       ws.getCell(`N${sigTop}`).font = { bold: true };
-      ws.getCell(`N${sigTop+1}`).value = "Dibuat oleh,";
-      ws.getCell(`N${sigTop+1}`).font = { bold: true };
-      ws.getCell(`N${sigTop+1}`).alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getCell(`N${sigTop+1}`).value = "Dibuat oleh,"; ws.getCell(`N${sigTop+1}`).font = { bold: true }; ws.getCell(`N${sigTop+1}`).alignment = { horizontal: 'center', vertical: 'middle' };
 
       ws.getCell(`N${sigTop+5}`).value = teknisiPembuat;
       ws.getCell(`N${sigTop+5}`).font  = { bold: true, underline: true };
@@ -490,23 +461,17 @@
       ws.getCell(`N${sigTop+6}`).font  = { bold: true };
       ws.getCell(`N${sigTop+6}`).alignment = { horizontal: 'center', vertical: 'middle' };
 
-      ws.getCell(`D${sigTop}`).value = "Mengetahui,";
-      ws.getCell(`D${sigTop}`).font = { bold: true };
-      ws.getCell(`D${sigTop}`).alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getCell(`D${sigTop}`).value = "Mengetahui,"; ws.getCell(`D${sigTop}`).font = { bold: true }; ws.getCell(`D${sigTop}`).alignment = { horizontal: 'center', vertical: 'middle' };
 
       ws.getCell(`C${sigTop+5}`).value = "Yonathan Christian";
       ws.getCell(`C${sigTop+5}`).font  = { bold: true, underline: true };
       ws.getCell(`C${sigTop+5}`).alignment = { horizontal: 'center', vertical: 'middle' };
-      ws.getCell(`C${sigTop+6}`).value = "Assistant Vice President";
-      ws.getCell(`C${sigTop+6}`).font  = { bold: true };
-      ws.getCell(`C${sigTop+6}`).alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getCell(`C${sigTop+6}`).value = "Assistant Vice President"; ws.getCell(`C${sigTop+6}`).font  = { bold: true }; ws.getCell(`C${sigTop+6}`).alignment = { horizontal: 'center', vertical: 'middle' };
 
       ws.getCell(`E${sigTop+5}`).value = "Fitrah Rahmanto";
       ws.getCell(`E${sigTop+5}`).font  = { bold: true, underline: true };
       ws.getCell(`E${sigTop+5}`).alignment = { horizontal: 'center', vertical: 'middle' };
-      ws.getCell(`E${sigTop+6}`).value = "Project Controller";
-      ws.getCell(`E${sigTop+6}`).font  = { bold: true };
-      ws.getCell(`E${sigTop+6}`).alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getCell(`E${sigTop+6}`).value = "Project Controller"; ws.getCell(`E${sigTop+6}`).font  = { bold: true }; ws.getCell(`E${sigTop+6}`).alignment = { horizontal: 'center', vertical: 'middle' };
 
       for(let r=sigTop+2; r<=sigTop+4; r++){ ws.getRow(r).height = 18; }
 
@@ -523,21 +488,11 @@
         distMinWidth = 9
       } = {}) {
         autoFitColumns(ws, { min, max, padding, wrapCols });
-
-        minAtoP.forEach((w, i) => {
-          const col = ws.getColumn(i + 1);
-          col.width = Math.max(col.width || 0, w);
-        });
-
-        const maxTimeW = Math.max(timeMinWidth, ...timeCols.map(i => ws.getColumn(i).width || 0));
-        timeCols.forEach(i => ws.getColumn(i).width = maxTimeW);
-
-        const maxDurW = Math.max(durationMinWidth, ...durationCols.map(i => ws.getColumn(i).width || 0));
-        durationCols.forEach(i => ws.getColumn(i).width = maxDurW);
-
+        minAtoP.forEach((w, i) => { const col = ws.getColumn(i + 1); col.width = Math.max(col.width || 0, w); });
+        const maxTimeW = Math.max(timeMinWidth, ...timeCols.map(i => ws.getColumn(i).width || 0)); timeCols.forEach(i => ws.getColumn(i).width = maxTimeW);
+        const maxDurW = Math.max(durationMinWidth, ...durationCols.map(i => ws.getColumn(i).width || 0)); durationCols.forEach(i => ws.getColumn(i).width = maxDurW);
         ws.getColumn(distanceCol).width = Math.max(distMinWidth, ws.getColumn(distanceCol).width || 0);
       }
-
       applySmartWidths(ws);
 
       // Export buffer
@@ -559,29 +514,37 @@
   }
 
   // ===== events
-  qInput && qInput.addEventListener('input', applyFilters);
-  btnExportXlsx && btnExportXlsx.addEventListener('click', exportXLSX);
-  btnReset && btnReset.addEventListener('click', resetMonth);
+  $("q") && $("q").addEventListener('input', applyFilters);
+  $("btnExportXlsx") && $("btnExportXlsx").addEventListener('click', exportXLSX);
+  $("btnReset") && $("btnReset").addEventListener('click', resetMonth);
 
-document.addEventListener('DOMContentLoaded', async () => {
-  applyFilters?.(); // kalau kamu punya
+  document.addEventListener('DOMContentLoaded', async () => {
+    applyFilters?.();
 
-  // Pull sederhana dari Drive → merge → simpan → render
-  async function monthlyPullAndRender() {
-    try {
-      const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
-      if (!ok && !window.DriveSync?.isLogged?.()) return;
-      const cloudObj = await window.DriveSync?.getJson?.(monthlyCloudFile());
-      const incoming = cloudObj?.data || [];
-      if (Array.isArray(incoming)) {
-        const merged = mergeByIdNewest(await monthlyGetLocal(), incoming);
-        await monthlySetLocal(merged);
-        applyFilters();
+    // Pull → merge → render (pakai MonthlySync kalau ada; kalau tidak, fallback ke Drive langsung)
+    const doPull = async () => {
+      if (window.MonthlySync?.pull) {
+        await window.MonthlySync.pull(monthlyGetLocal, monthlySetLocal, () => applyFilters());
+        return;
       }
-    } catch (e) {
-      console.warn('[Monthly] pull gagal:', e);
-    }
-  }
-  await monthlyPullAndRender();
- });
+      try {
+        const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+        if (!ok && !window.DriveSync?.isLogged?.()) return;
+        const cloudObj = await window.DriveSync?.getJson?.(monthlyCloudFile());
+      const incoming =
+  Array.isArray(cloudObj?.data) ? cloudObj.data
+  : Array.isArray(cloudObj)     ? cloudObj
+  : [];
+
+if (incoming.length) {
+  const merged = mergeByIdNewest(await monthlyGetLocal(), incoming);
+  await monthlySetLocal(merged);
+  applyFilters?.();
+}
+} catch (e) {
+  console.warn('[Monthly] pull gagal:', e);
+}
+}
+await monthlyPullAndRender();
+});
 })();

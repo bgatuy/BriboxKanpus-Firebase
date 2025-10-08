@@ -4,23 +4,32 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>BRIBOX KANPUS</title>
+
   <link rel="icon" type="image/png" href="../favicon.png" />
   <link rel="stylesheet" href="../style.css" />
   <link rel="stylesheet" href="monthly-form.css" />
-  <!-- guard overflow supaya konten gak meluber -->
-  <style>body[data-page="monthly"] .dashboard .main{min-width:0}</style>
+
+  <!-- Guard overflow supaya konten tidak meluber -->
+  <style>
+    body[data-page="monthly"] .dashboard .main { min-width: 0; }
+  </style>
 
   <!-- CONFIG -->
   <script src="../config.local.js"></script>
-  <script>if(!window.__CONFIG){document.write('<script src="../config.sample.js"><\/script>')}</script>
+  <script>
+    if (!window.__CONFIG) {
+      document.write('<script src="../config.sample.js"><\/script>');
+    }
+  </script>
 
-  <!-- user scope (per-akun) WAJIB PALING AWAL -->
+  <!-- User scope (per-akun) WAJIB PALING AWAL -->
   <script src="../user-scope.js"></script>
   <script>
-    // pastikan kunci lama ikut dimirror ke ruang akun aktif
-    AccountNS.setMirrorKeys(['monthlyForm','monthlyData','pdfHistori']);
+    // Pastikan kunci lama ikut dimirror ke ruang akun aktif
+    AccountNS.setMirrorKeys(['monthlyForm', 'monthlyData', 'pdfHistori']);
   </script>
 </head>
+
 <body data-page="monthly">
   <div class="dashboard">
     <!-- Sidebar -->
@@ -28,22 +37,30 @@
       <h2 class="logo">
         <img src="../favicon.png" class="logo-icon" alt="Logo" /> BRIBOX KANPUS
       </h2>
+
       <nav>
         <a href="../trackmate.html">📋 Trackmate</a>
         <a href="../appsheet.html">📋 AppSheet</a>
         <a href="../formserahterima.html">📝 Form Serah Terima</a>
 
-        <button class="nav-group" type="button" aria-controls="nav-monthly" aria-expanded="true" onclick="
-          const t=this;const m=document.getElementById('nav-monthly');
-          const ex=t.getAttribute('aria-expanded')==='true';
-          t.setAttribute('aria-expanded', String(!ex)); m.hidden=ex;
-        ">📅 Monthly Report</button>
+        <button
+          class="nav-group"
+          type="button"
+          aria-controls="nav-monthly"
+          aria-expanded="true"
+          onclick="
+            const t=this; const m=document.getElementById('nav-monthly');
+            const ex=t.getAttribute('aria-expanded')==='true';
+            t.setAttribute('aria-expanded', String(!ex)); m.hidden=ex;
+          "
+        >📅 Monthly Report</button>
 
         <div id="nav-monthly" class="submenu">
-          <a href="monthly-form.html" class="active">Monthly Report Form</a>
+          <a href="monthly-form.html" class="active" aria-current="page">Monthly Report Form</a>
           <a href="monthly-data.html">Monthly Report Data</a>
         </div>
       </nav>
+
       <div class="sidebar-credit" aria-label="Project credit">
         Web App Created By BangAtuy - 2025
       </div>
@@ -52,15 +69,15 @@
     <!-- Main -->
     <main class="main">
       <header class="dashboard-header">
-        <button class="sidebar-toggle-btn" onclick="toggleSidebar()">☰</button>
+        <button class="sidebar-toggle-btn" type="button" onclick="toggleSidebar()">☰</button>
         <h1>Monthly Report Form</h1>
-        <button id="toggleModeBtn" onclick="toggleDarkMode()">🌙</button>
+        <button id="toggleModeBtn" type="button" onclick="toggleDarkMode()">🌙</button>
       </header>
 
       <!-- ======= KONTEN FORM ======= -->
       <section class="card">
-        <h3 style="text-align:left;margin-bottom:8px">Input SPJ Harian</h3>
-        <p class="muted" style="margin:-6px 0 12px">Di Rekap di halaman Data.</p>
+        <h3 style="text-align:left; margin-bottom:8px">Input SPJ Harian</h3>
+        <p class="muted" style="margin:-6px 0 12px">Di rekap di halaman Data.</p>
 
         <form id="formReport" autocomplete="on">
           <div class="grid">
@@ -68,6 +85,7 @@
               <span>Bulan <em>*</em></span>
               <input type="month" id="bulan" required />
             </label>
+
             <label class="field">
               <span>Tanggal <em>*</em></span>
               <input type="date" id="tanggal" required />
@@ -75,7 +93,9 @@
 
             <label class="field">
               <span>Teknisi <em>*</em></span>
-              <div class="row-inline"><select id="teknisi" required></select></div>
+              <div class="row-inline">
+                <select id="teknisi" required></select>
+              </div>
             </label>
 
             <label class="field">
@@ -91,6 +111,7 @@
               <span>Lokasi — Dari</span>
               <input id="lokasiDari" placeholder="cth: Kantor Pusat" />
             </label>
+
             <label class="field">
               <span>Lokasi — Ke</span>
               <input id="lokasiKe" placeholder="cth: Menara BriLian / Div. PLO" />
@@ -100,6 +121,7 @@
               <span>Detail Pekerjaan</span>
               <input id="detail" placeholder="cth: Troubleshooting" />
             </label>
+
             <label class="field">
               <span>Status</span>
               <select id="status">
@@ -112,6 +134,7 @@
               <span>Jam Berangkat</span>
               <input id="jamBerangkat" type="time" step="60" />
             </label>
+
             <label class="field">
               <span>Jam Masuk Laporan (auto)</span>
               <input id="jamMasuk" type="time" step="60" readonly />
@@ -121,6 +144,7 @@
               <span>Jam Tiba</span>
               <input id="jamTiba" type="time" step="60" />
             </label>
+
             <label class="field">
               <span>Jam Mulai Pekerjaan</span>
               <input id="jamMulai" type="time" step="60" />
@@ -130,6 +154,7 @@
               <span>Jam Selesai</span>
               <input id="jamSelesai" type="time" step="60" />
             </label>
+
             <label class="field">
               <span>Waktu Penyelesaian (auto)</span>
               <input id="durasiPenyelesaian" type="text" placeholder="0:00" readonly />
@@ -139,6 +164,7 @@
               <span>Jarak Tempuh (km)</span>
               <input id="jarak" type="number" inputmode="decimal" step="0.1" min="0" placeholder="0" />
             </label>
+
             <label class="field">
               <span>Waktu Tempuh (auto)</span>
               <input id="waktuTempuh" type="text" placeholder="0:00" readonly />
@@ -161,7 +187,7 @@
           </div>
         </form>
 
-        <!-- meta tetap di dalam card ini -->
+        <!-- Meta tetap di dalam card ini -->
         <div class="meta-inline">
           <strong id="countBulan">0</strong>
           <span>Entri data tersimpan untuk bulan ini</span>
@@ -174,121 +200,136 @@
 
   <!-- Prefs & UX -->
   <script>
-    if (localStorage.getItem('darkMode') === 'true') document.body.classList.add('dark-mode');
-    document.addEventListener('DOMContentLoaded', () => {
-      const b = document.getElementById('toggleModeBtn');
-      if (b) b.textContent = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
-    });
-    function toggleDarkMode(){
+    // Dark mode awal
+    if (localStorage.getItem('darkMode') === 'true') {
+      document.body.classList.add('dark-mode');
+    }
+
+    // Toggle dark mode
+    function toggleDarkMode() {
       const on = document.body.classList.toggle('dark-mode');
       localStorage.setItem('darkMode', on);
-      const b = document.getElementById('toggleModeBtn'); if (b) b.textContent = on ? '☀️' : '🌙';
+      const b = document.getElementById('toggleModeBtn');
+      if (b) b.textContent = on ? '☀️' : '🌙';
     }
-    function toggleSidebar(){
+
+    // Sidebar show/hide (mobile vs desktop)
+    function toggleSidebar() {
       const sb = document.querySelector('.sidebar');
       const isMobile = window.matchMedia('(max-width:768px)').matches;
       if (isMobile) sb.classList.toggle('visible'); else sb.classList.toggle('hidden');
     }
 
-    // buka submenu Monthly sesuai halaman aktif
-    (function(){
-      const m=document.getElementById('nav-monthly');
-      const p=document.querySelector('.nav-group[aria-controls="nav-monthly"]');
-      if(!m||!p) return;
-      const hasActive=!!m.querySelector('a.active');
-      p.setAttribute('aria-expanded', hasActive?'true':'false');
-      m.hidden=!hasActive;
-    })();
-
-    // swap posisi "Jam Berangkat" vs "Jam Masuk Laporan (auto)"
     document.addEventListener('DOMContentLoaded', () => {
-      if (document.body.dataset.page !== 'monthly') return;
-      const grid = document.querySelector('body[data-page="monthly"] .grid');
-      if (!grid) return;
+      // Icon dark mode saat load
+      const b = document.getElementById('toggleModeBtn');
+      if (b) b.textContent = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
 
-      const findFieldByLabel = (txt) => {
-        const fields = grid.querySelectorAll('.field');
-        const norm = s => s.replace(/\s+/g,' ').trim().toLowerCase();
-        const want = norm(txt);
-        return Array.from(fields).find(f => {
-          const sp = f.querySelector(':scope > span');
-          return sp && norm(sp.textContent) === want;
-        });
-      };
+      // Buka submenu Monthly sesuai halaman aktif
+      (function () {
+        const m = document.getElementById('nav-monthly');
+        const p = document.querySelector('.nav-group[aria-controls="nav-monthly"]');
+        if (!m || !p) return;
+        const hasActive = !!m.querySelector('a.active');
+        p.setAttribute('aria-expanded', hasActive ? 'true' : 'false');
+        m.hidden = !hasActive;
+      })();
 
-      const fBerangkat = findFieldByLabel('Jam Berangkat');
-      const fLaporan  = findFieldByLabel('Jam Masuk Laporan (auto)');
+      // Swap posisi "Jam Berangkat" vs "Jam Masuk Laporan (auto)"
+      (function () {
+        if (document.body.dataset.page !== 'monthly') return;
+        const grid = document.querySelector('body[data-page="monthly"] .grid');
+        if (!grid) return;
 
-      if (fBerangkat && fLaporan && fBerangkat !== fLaporan) {
-        const placeholder = document.createElement('div');
-        grid.insertBefore(placeholder, fBerangkat);
-        grid.replaceChild(fBerangkat, fLaporan);
-        grid.insertBefore(fLaporan, placeholder);
-        grid.removeChild(placeholder);
-      }
+        const findFieldByLabel = (txt) => {
+          const fields = grid.querySelectorAll('.field');
+          const norm = s => s.replace(/\s+/g, ' ').trim().toLowerCase();
+          const want = norm(txt);
+          return Array.from(fields).find(f => {
+            const sp = f.querySelector(':scope > span');
+            return sp && norm(sp.textContent) === want;
+          });
+        };
+
+        const fBerangkat = findFieldByLabel('Jam Berangkat');
+        const fLaporan = findFieldByLabel('Jam Masuk Laporan (auto)');
+
+        if (fBerangkat && fLaporan && fBerangkat !== fLaporan) {
+          const placeholder = document.createElement('div');
+          grid.insertBefore(placeholder, fBerangkat);
+          grid.replaceChild(fBerangkat, fLaporan);
+          grid.insertBefore(fLaporan, placeholder);
+          grid.removeChild(placeholder);
+        }
+      })();
     });
   </script>
 
   <!-- Auth + Guard -->
   <script defer src="../auth.js"></script>
-  <script>document.addEventListener('DOMContentLoaded',()=>Auth.enforce());</script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      try { Auth.enforce(); } catch {}
+    });
+  </script>
 
   <!-- Drive core (wajib untuk sync lintas device) -->
   <script defer src="../drive-sync.js"></script>
 
   <!-- Monthly Cloud Mirror (Drive JSON, PER-AKUN) -->
   <script>
-  (function(){
-    function fileName() {
-      var uid = (window.AccountNS && AccountNS.getUidOrAnon) ? AccountNS.getUidOrAnon() : 'anon';
-      return `.monthly_data__${uid}.json`;
-    }
-
-    function norm(x){
-      const id = x.id || [x.month,x.date,x.teknisi,x.createdAt].filter(Boolean).join('|');
-      return { id, createdAt:x.createdAt||Date.now(), ...x };
-    }
-    function merge(base, add){
-      const m = new Map(base.map(r=>{const n=norm(r); return [n.id,n];}));
-      for(const r of add){
-        const n = norm(r);
-        const ex = m.get(n.id);
-        if(!ex || (new Date(n.createdAt) > new Date(ex.createdAt||0))) m.set(n.id,n);
+    (function () {
+      function fileName() {
+        const uid = (window.AccountNS && AccountNS.getUidOrAnon) ? AccountNS.getUidOrAnon() : 'anon';
+        return `.monthly_data__${uid}.json`;
       }
-      return [...m.values()];
-    }
 
-    let t=null;
-    async function pushDebounced(getLocal){
-      if(t) clearTimeout(t);
-      t=setTimeout(async ()=>{
-        try{
-          const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
-          if(!ok && !window.DriveSync?.isLogged?.()) return;
-          const local = await getLocal();
-          await window.DriveSync.putJson(fileName(), local||[]);
-        }catch{}
-      }, 900);
-    }
+      function norm(x) {
+        const id = x.id || [x.month, x.date, x.teknisi, x.createdAt].filter(Boolean).join('|');
+        return { id, createdAt: x.createdAt || Date.now(), ...x };
+      }
 
-    window.MonthlySync = {
-      async pull(getLocal,setLocal,onAfter){
-        try{
-          const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
-          if(!ok && !window.DriveSync?.isLogged?.()) return;
-          const cloud = await window.DriveSync.getJson(fileName());
-          if(!Array.isArray(cloud?.data)) return;
-          const merged = merge((await getLocal())||[], cloud.data);
-          await setLocal(merged);
-          onAfter && onAfter();
-        }catch{}
-      },
-      queuePush(getLocal){ return pushDebounced(getLocal); }
-    };
-  })();
+      function merge(base, add) {
+        const m = new Map(base.map(r => { const n = norm(r); return [n.id, n]; }));
+        for (const r of add) {
+          const n = norm(r);
+          const ex = m.get(n.id);
+          if (!ex || (new Date(n.createdAt) > new Date(ex.createdAt || 0))) m.set(n.id, n);
+        }
+        return [...m.values()];
+      }
+
+      let t = null;
+      async function pushDebounced(getLocal) {
+        if (t) clearTimeout(t);
+        t = setTimeout(async () => {
+          try {
+            const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+            if (!ok && !window.DriveSync?.isLogged?.()) return;
+            const local = await getLocal();
+            await window.DriveSync.putJson(fileName(), { data: local || [] });
+          } catch {}
+        }, 900);
+      }
+
+      window.MonthlySync = {
+        async pull(getLocal, setLocal, onAfter) {
+          try {
+            const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+            if (!ok && !window.DriveSync?.isLogged?.()) return;
+            const cloud = await window.DriveSync.getJson(fileName());
+            if (!Array.isArray(cloud?.data)) return;
+            const merged = merge((await getLocal()) || [], cloud.data);
+            await setLocal(merged);
+            onAfter && onAfter();
+          } catch {}
+        },
+        queuePush(getLocal) { return pushDebounced(getLocal); }
+      };
+    })();
   </script>
 
   <!-- Logic form -->
-  <script src="monthly-form.js"></script>
+  <script defer src="monthly-form.js"></script>
 </body>
 </html>

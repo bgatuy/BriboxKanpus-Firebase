@@ -8,18 +8,29 @@
   <link rel="stylesheet" href="style.css"/>
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet"/>
 
-  <!-- Config -->
-  <script src="config.local.js"></script>
-  <script>if(!window.__CONFIG)document.write('<script src="config.sample.js"><\/script>');</script>
+  <!-- Config (local dulu, fallback sample tanpa document.write) -->
+  <script src="config.local.js" defer></script>
+  <script defer>
+    window.addEventListener('error', function onCfgErr(e){
+      if ((e.filename||'').includes('config.local.js')) {
+        const s = document.createElement('script');
+        s.src = 'config.sample.js'; s.defer = true;
+        document.head.appendChild(s);
+      }
+    }, { once:true });
+  </script>
+
+  <noscript><meta http-equiv="refresh" content="0; url=noscript.html"></noscript>
 </head>
 <body data-page="appsheet">
   <div class="dashboard">
-    <aside class="sidebar">
+    <aside class="sidebar" aria-label="Menu utama">
       <h2 class="logo"><img src="favicon.png" alt="Logo" class="logo-icon"/> BRIBOX KANPUS</h2>
       <nav>
         <a href="trackmate.html">📋 Trackmate</a>
         <a href="appsheet.html" class="active">📋 AppSheet</a>
         <a href="formserahterima.html">📝 Form Serah Terima</a>
+
         <button class="nav-group" type="button"
           aria-controls="nav-monthly" aria-expanded="false"
           onclick="const t=this,m=document.getElementById('nav-monthly');const ex=t.getAttribute('aria-expanded')==='true';t.setAttribute('aria-expanded',String(!ex));m.hidden=ex;">
@@ -55,17 +66,18 @@
         </div>
       </div>
 
-      <section class="card">
-        <h3>Upload Form PDF Kalian Disini Lalu Pilih Lokasi Divisi!</h3>
+      <section class="card" aria-labelledby="uploadTitle">
+        <h3 id="uploadTitle">Upload Form PDF Kalian Disini Lalu Pilih Lokasi Divisi!</h3>
 
         <label for="pdfFile" class="upload-label">
           <span class="material-icons" aria-hidden="true">picture_as_pdf</span> Pilih File PDF
         </label>
-        <input type="file" id="pdfFile" accept="application/pdf"/>
+        <input type="file" id="pdfFile" accept="application/pdf" aria-describedby="uploadHelp"/>
+        <div id="uploadHelp" class="muted" style="margin-top:6px">File belum otomatis ter-upload—akan diproses oleh halaman ini saat klik <b>Copy</b>.</div>
 
         <div class="form-group">
           <label for="inputLokasi">Pilih Lokasi Divisi :</label>
-          <select id="inputLokasi">
+          <select id="inputLokasi" aria-label="Lokasi Divisi">
             <option value="">-- Pilih Lokasi --</option>
             <option value="BRI 1 Lt. Split">BRI 1 Lt. Split</option>
             <option value="BRI 1 Lt. 2">BRI 1 Lt. 2</option>
@@ -151,31 +163,49 @@
   </div>
 
   <!-- PDF.js -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
-  <script>
-    if (window.pdfjsLib && (!pdfjsLib.GlobalWorkerOptions.workerSrc || pdfjsLib.GlobalWorkerOptions.workerSrc === '')) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
-    }
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js" defer></script>
+  <script defer>
+    document.addEventListener('DOMContentLoaded', function(){
+      if (window.pdfjsLib && (!pdfjsLib.GlobalWorkerOptions.workerSrc || pdfjsLib.GlobalWorkerOptions.workerSrc === '')) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+      }
+    });
   </script>
 
-  <!-- Prefs -->
-  <script>
-    if(localStorage.getItem('darkMode')==='true'){document.body.classList.add('dark-mode');}
-    document.addEventListener('DOMContentLoaded',()=>{const b=document.getElementById('toggleModeBtn');if(b){const d=document.body.classList.contains('dark-mode');b.textContent=d?'☀️':'🌙';b.setAttribute('aria-pressed',String(d));}});
-    function toggleDarkMode(){const d=document.body.classList.toggle('dark-mode');localStorage.setItem('darkMode',d);const b=document.getElementById('toggleModeBtn');if(b){b.textContent=d?'☀️':'🌙';b.setAttribute('aria-pressed',String(d));}}
-    function toggleSidebar(){document.querySelector('.sidebar')?.classList.toggle('hidden');}
+  <!-- Prefs + util kecil -->
+  <script defer>
+    if(localStorage.getItem('darkMode')==='true'){document.documentElement.classList.add('dark-mode');document.body.classList.add('dark-mode');}
+    document.addEventListener('DOMContentLoaded',()=>{
+      const b=document.getElementById('toggleModeBtn');
+      if(b){
+        const d=document.body.classList.contains('dark-mode');
+        b.textContent=d?'☀️':'🌙';
+        b.setAttribute('aria-pressed',String(d));
+      }
+    });
+    function toggleDarkMode(){
+      const d=document.body.classList.toggle('dark-mode');
+      document.documentElement.classList.toggle('dark-mode', d);
+      localStorage.setItem('darkMode', d);
+      const b=document.getElementById('toggleModeBtn');
+      if(b){ b.textContent=d?'☀️':'🌙'; b.setAttribute('aria-pressed',String(d)); }
+    }
+    function toggleSidebar(){ document.querySelector('.sidebar')?.classList.toggle('hidden'); }
   </script>
+
+  <!-- Namespacing per-akun (agar konsisten lintas halaman) -->
+  <script src="user-scope.js" defer></script>
 
   <!-- Auth -->
-  <script defer src="auth.js"></script>
-  <script>document.addEventListener('DOMContentLoaded',()=>Auth.enforce());</script>
+  <script src="auth.js" defer></script>
+  <script defer>document.addEventListener('DOMContentLoaded',()=>{ try{ Auth.enforce(); }catch{} });</script>
 
   <!-- Drive core -->
-  <script src="drive-sync.js?v=pure-oauth-2"></script>
+  <script src="drive-sync.js?v=pure-oauth-2" defer></script>
   <script src="drive-queue.js" defer></script>
 
   <!-- Banner connect: auto-resume + broadcast + init queue -->
-  <script>
+  <script defer>
   document.addEventListener('DOMContentLoaded', async () => {
     // init queue di halaman ini juga
     try { window.DriveQueue?.init?.(); } catch {}
@@ -184,21 +214,24 @@
     const btn = document.getElementById('btnConnectDrive');
 
     // 1) coba resume token
-    const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
-    if (ok) { bar?.remove(); } else if (bar) { bar.style.display = 'block'; }
+    let ok = false;
+    try { ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false)); } catch {}
+    if (ok) { bar?.remove?.(); } else if (bar) { bar.style.display = 'block'; }
 
     // 2) dengar broadcast antar tab
-    const bc = ('BroadcastChannel' in window) ? new BroadcastChannel('bribox-drive') : null;
-    bc?.addEventListener('message', (ev) => {
-      if (ev.data?.type !== 'drive-auth') return;
-      if (ev.data.status === 'in')  bar?.remove();
-      if (ev.data.status === 'out') { if (bar) bar.style.display = 'block'; }
-    });
+    try {
+      const bc = ('BroadcastChannel' in window) ? new BroadcastChannel('bribox-drive') : null;
+      bc?.addEventListener('message', (ev) => {
+        if (ev.data?.type !== 'drive-auth') return;
+        if (ev.data.status === 'in')  bar?.remove?.();
+        if (ev.data.status === 'out') { if (bar) bar.style.display = 'block'; }
+      });
+    } catch {}
 
     // 3) tombol connect
     btn?.addEventListener('click', async () => {
       btn.disabled = true;
-      try { await DriveSync.signIn(); bar?.remove(); }
+      try { await DriveSync.signIn(); bar?.remove?.(); }
       catch (e) { alert('Gagal connect Drive.\n' + (e?.message || e)); bar && (bar.style.display = 'block'); }
       finally { btn.disabled = false; }
     });
@@ -206,7 +239,7 @@
   </script>
 
   <!-- File picker: hanya simpan state; upload ditangani di appsheet.js / queue -->
-  <script>
+  <script defer>
     document.addEventListener('DOMContentLoaded', () => {
       const pdfInput = document.getElementById('pdfFile');
       pdfInput?.addEventListener('change', () => {
@@ -216,6 +249,6 @@
   </script>
 
   <!-- Page logic -->
-  <script src="appsheet.js"></script>
+  <script src="appsheet.js" defer></script>
 </body>
 </html>

@@ -3,7 +3,7 @@
   if (window.__DRIVESYNC_LOADED__) return;
   window.__DRIVESYNC_LOADED__ = true;
 
-  // siapkan namespace global
+  // ===== Namespace =====
   window.DriveSync = window.DriveSync || {};
   const DS = window.DriveSync; // alias lokal
 
@@ -55,7 +55,10 @@
     const btn  = $('#btnConnectDrive');
     const who  = $('#whoami');
     if (bar) bar.style.display = logged ? 'none' : '';
-    if (btn) btn.disabled = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = logged ? 'Connected' : 'Connect Google Drive';
+    }
     if (who) who.textContent = logged ? (profile?.email || profile?.name || 'Logged in') : '';
   }
 
@@ -78,13 +81,14 @@
   }
 
   function openCenteredPopup(url, title, w = 520, h = 620) {
-    const dualLeft = (window.screenLeft ?? window.screenX);
-    theTop  = (window.screenTop  ?? window.screenY);
+    const dualLeft = (window.screenLeft ?? window.screenX ?? 0);
+    const dualTop  = (window.screenTop  ?? window.screenY ?? 0);
     const width  = window.innerWidth  || document.documentElement.clientWidth  || screen.width;
     const height = window.innerHeight || document.documentElement.clientHeight || screen.height;
     const left = ((width - w) / 2) + dualLeft;
-    const top  = ((height - h) / 2) + theTop;
-    return window.open(url, title, `scrollbars=yes,resizable=yes,width=${w},height=${h},top=${top},left=${left}`);
+    const top  = ((height - h) / 2) + dualTop;
+    const feat = `scrollbars=yes,resizable=yes,width=${w},height=${h},top=${Math.max(0,top)},left=${Math.max(0,left)}`;
+    return window.open(url, title, feat);
   }
 
   async function afterLogin() {
@@ -95,21 +99,20 @@
   }
 
   async function signIn() {
-    // jika oauth-return sudah menitip token di sessionStorage
-    const fromReturn = sessionStorage.getItem(STORE_KEY);
-    if (fromReturn) {
-      sessionStorage.removeItem(STORE_KEY);
-      ACCESS_TOKEN = fromReturn;
+    // Fallback same-tab (jika alur login tidak via popup)
+    const resumed = loadTokenIfValid();
+    if (resumed) {
+      ACCESS_TOKEN = resumed;
       await afterLogin();
       broadcast('in'); _notifyAuth();
       return;
     }
 
-    // popup
-    return new Promise((resolve, reject) => {
+    // Popup + postMessage
+    await new Promise((resolve, reject) => {
       const url = buildAuthUrl(location.href);
       const pop = openCenteredPopup(url, 'Google Login');
-      if (!pop) { location.assign(url); return reject(new Error('Popup diblok; redirect.')); }
+      if (!pop) { location.assign(url); return reject(new Error('Popup diblokir. Redirect ke Google.')); }
 
       const timer = setInterval(() => {
         if (pop.closed) { clearInterval(timer); reject(new Error('Popup ditutup sebelum login.')); }
@@ -120,11 +123,13 @@
           if (typeof ev.data !== 'object' || ev.data?.type !== 'GDRV_TOKEN') return;
           window.removeEventListener('message', onMsg);
           clearInterval(timer);
-          pop.close();
+          try { pop.close(); } catch {}
 
-          ACCESS_TOKEN = ev.data.access_token || null;
-          if (!ACCESS_TOKEN) return reject(new Error('No access_token from OAuth.'));
-          saveToken(ACCESS_TOKEN, Number(ev.data.expires_in || 3600));
+          const tok = ev.data.access_token || null;
+          const exp = Number(ev.data.expires_in || 3600);
+          if (!tok) return reject(new Error('No access_token from OAuth.'));
+          ACCESS_TOKEN = tok;
+          saveToken(tok, exp);
 
           afterLogin()
             .then(() => { broadcast('in'); _notifyAuth(); resolve(); })
@@ -212,14 +217,14 @@
     if (!res.ok) throw new Error('Download failed: ' + res.status);
     return await res.text();
   }
-  async function createJsonInRoot(name, text) {
+  async function createTextInRoot(name, text, mime='application/json') {
     const parent = await ensureRootFolder();
     const boundary = '-------314159265358979323846';
     const delimiter = '\r\n--' + boundary + '\r\n';
     const close = '\r\n--' + boundary + '--';
     const metaPart = delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-      JSON.stringify({ name, mimeType: 'application/json', parents: [parent] });
-    const dataPart = delimiter + 'Content-Type: application/json\r\n\r\n' + (text ?? '{}');
+      JSON.stringify({ name, mimeType: mime, parents: [parent] });
+    const dataPart = delimiter + 'Content-Type: '+mime+'\r\n\r\n' + (text ?? (mime==='application/json' ? '{}' : ''));
     const body = metaPart + dataPart + close;
 
     const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
@@ -227,7 +232,7 @@
       headers: authHeaders({ 'Content-Type': 'multipart/related; boundary=' + boundary }),
       body
     });
-    if (!res.ok) throw new Error('Create JSON failed: ' + res.status);
+    if (!res.ok) throw new Error('Create text failed: ' + res.status);
     return (await res.json()).id;
   }
   async function updateFileText(fileId, text, mime = 'application/json') {
@@ -236,7 +241,7 @@
       headers: authHeaders({ 'Content-Type': mime }),
       body: text ?? ''
     });
-    if (!res.ok) throw new Error('Update JSON failed: ' + res.status);
+    if (!res.ok) throw new Error('Update text failed: ' + res.status);
     return true;
   }
   async function getJson(name) {
@@ -249,8 +254,8 @@
   async function putJson(name, obj) {
     const txt = JSON.stringify(obj ?? {}, null, 0);
     const f = await findFileInRootByName(name);
-    if (f) { await updateFileText(f.id, txt); return { id: f.id }; }
-    const id = await createJsonInRoot(name, txt);
+    if (f) { await updateFileText(f.id, txt, 'application/json'); return { id: f.id }; }
+    const id = await createTextInRoot(name, txt, 'application/json');
     return { id };
   }
 
@@ -307,10 +312,7 @@
     // 2) upload body
     const up = await fetch(uploadUrl, {
       method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': file.type || 'application/pdf'
-      },
+      headers: { 'Authorization': `Bearer ${accessToken}` },
       body: file
     });
     if (!up.ok) {
@@ -320,7 +322,7 @@
     return up.json();
   }
 
-  // multipart uploader (tetap dipakai untuk JSON/keperluan lain)
+  // multipart uploader (tetap dipakai untuk non-PDF / text binary biasa)
   async function uploadFileMultipart(name, file, parentId, mime = 'application/pdf', metaExtra) {
     const meta = Object.assign({ name, parents: [parentId], mimeType: mime }, metaExtra || {});
     const boundary = 'END_OF_PART_7d29c1';
@@ -336,14 +338,14 @@
     ].join('\r\n');
 
     const post = `\r\n--${boundary}--`;
-    const body = new Blob([pre, file, post], { type: 'multipart/related; boundary=' + boundary });
+    const body = new Blob([pre, file, post]);
 
     const r = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method: 'POST',
-      headers: authHeaders(),
+      headers: authHeaders({ 'Content-Type': 'multipart/related; boundary=' + boundary }),
       body
     });
-    if (!r.ok) throw new Error('Drive upload failed');
+    if (!r.ok) throw new Error('Drive upload failed: ' + r.status);
     return r.json();
   }
 
@@ -351,29 +353,53 @@
     const r = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
       headers: authHeaders()
     });
-    if (!r.ok) throw new Error('Drive download failed');
+    if (!r.ok) throw new Error('Drive download failed: ' + r.status);
     return r.blob();
   }
 
-  /** Simpan PDF idempoten: /Bribox Kanpus/pdfs/<sha256>.pdf */
+  /** Simpan PDF idempoten: /Bribox Kanpus/pdfs/<sha256>.pdf
+   *  Dedupe prioritas:
+   *  1) appProperties.contentHash
+   *  2) nama file <hash>.pdf di subfolder
+   */
   async function savePdfByHash(file, sha256) {
-    const folderId = await ensureSub('pdfs');
-    const fname = `${sha256}.pdf`;
-    const exist = await findFileByName(fname, folderId);
+    if (!file) throw new Error('File kosong');
+    if (!sha256) throw new Error('Hash kosong');
+
     const uid = (window.Auth?.getUid?.() || 'anon');
+    const folderId = await ensureSub('pdfs');
 
-    if (exist) {
-      // update katalog lokal per-akun
-      try {
-        const k = `PdfCatalog__${uid}`;
-        const cat = JSON.parse(localStorage.getItem(k) || '{}');
-        cat[sha256] = { id: exist.id, name: fname };
-        localStorage.setItem(k, JSON.stringify(cat));
-      } catch {}
-      return { fileId: exist.id, name: fname, folderId, deduped: true };
-    }
+    // 1) Cari via appProperties hash (global, tidak tergantung nama)
+    try {
+      const q = `appProperties has { key='contentHash' and value='${sha256}' } and trashed=false`;
+      const hit = (await queryDrive(q, 'id,name,appProperties'))[0];
+      if (hit?.id) {
+        try {
+          const k = `PdfCatalog__${uid}`;
+          const cat = JSON.parse(localStorage.getItem(k) || '{}');
+          cat[sha256] = { id: hit.id, name: hit.name };
+          localStorage.setItem(k, JSON.stringify(cat));
+        } catch {}
+        return { fileId: hit.id, name: hit.name, folderId, deduped: true };
+      }
+    } catch {}
 
-    // === Upload pakai Resumable ===
+    // 2) Cari nama <hash>.pdf di subfolder
+    const fname = `${sha256}.pdf`;
+    try {
+      const exist = await findFileByName(fname, folderId);
+      if (exist?.id) {
+        try {
+          const k = `PdfCatalog__${uid}`;
+          const cat = JSON.parse(localStorage.getItem(k) || '{}');
+          cat[sha256] = { id: exist.id, name: exist.name };
+          localStorage.setItem(k, JSON.stringify(cat));
+        } catch {}
+        return { fileId: exist.id, name: fname, folderId, deduped: true };
+      }
+    } catch {}
+
+    // 3) Upload Resumable
     const token = DS._getAccessToken?.() || DS.getAccessToken?.();
     if (!token) throw new Error('Belum login Google Drive.');
 
@@ -396,9 +422,7 @@
       localStorage.setItem(k, JSON.stringify(cat));
     } catch {}
 
-    // debug
     console.log('[Drive] savePdfByHash OK (resumable):', { fileId: up.id, deduped: false, hash: sha256 });
-
     return { fileId: up.id, name: fname, folderId, deduped: false };
   }
 
@@ -462,11 +486,19 @@
 
     // JSON mirror
     getJson, putJson,
+    // util tambahan aman (dipakai modul lain jika mau)
+    putTextFile: async (name, text, mime='text/plain') => {
+      const f = await findFileInRootByName(name);
+      if (f) { await updateFileText(f.id, text ?? '', mime); return { id: f.id }; }
+      const id = await createTextInRoot(name, text ?? '', mime);
+      return { id };
+    },
   });
 
-  // ========= Optional: wiring tombol connect =========
+  // ========= Optional: wiring tombol connect + auto resume =========
   document.addEventListener('DOMContentLoaded', () => {
     setAuthUI(false);
+    try { tryResume(); } catch {}
     const btn = $('#btnConnectDrive');
     btn?.addEventListener('click', async () => {
       btn.disabled = true;

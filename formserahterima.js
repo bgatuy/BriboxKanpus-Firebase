@@ -203,6 +203,17 @@ function renderTabel(){
   syncPickAllState();
 }
 
+  // sinkron state tombol berdasarkan tanggal & pilihan
+  const iso = inputTanggalSerah?.value || '';
+  if (btnGenerate)   btnGenerate.disabled   = !iso;
+  if (btnGenCombo)   btnGenCombo.disabled   = !iso;
+  if (btnGenCMOnly)  btnGenCMOnly.disabled  = !iso;
+  if (btnGenFilesOnly){
+    const anyChecked = !!document.querySelector('#historiBody input.pick:checked');
+    btnGenFilesOnly.disabled = !iso || (!anyChecked && !!pickAll);
+  }
+
+
 /********************
  *   INDEXEDDB      *
  ********************/
@@ -892,8 +903,16 @@ inputTanggalSerah?.addEventListener('change', ()=>{
 });
 
 tbody?.addEventListener('change', (e)=>{
-  if (e.target.matches('input.pick')) syncPickAllState();
+  if (e.target.matches('input.pick')) {
+    syncPickAllState();
+    if (btnGenFilesOnly){
+      const iso = inputTanggalSerah?.value || '';
+      const anyChecked = !!document.querySelector('#historiBody input.pick:checked');
+      btnGenFilesOnly.disabled = !iso || (!anyChecked && !!pickAll);
+    }
+  }
 });
+
 
 tbody?.addEventListener('click', async (e) => {
   const btn = e.target.closest('.btn-del'); 
@@ -1204,6 +1223,17 @@ async function driveFindByName(name) {
     return new Blob([buf], { type:'application/pdf' });
   }
 
+  // --- Fallback downloader: pakai DriveSync.fetchPdfBlob kalau ada; kalau tidak, jatuh ke fetch alt=media
+async function downloadViaDriveSyncOrFetch(fileId){
+  try {
+    if (typeof window.DriveSync?.fetchPdfBlob === 'function') {
+      const b = await window.DriveSync.fetchPdfBlob(fileId);
+      if (b) return b;
+    }
+  } catch {}
+  return await driveDownloadBlob(fileId);
+}
+
   async function hydrateMissingBlobsFromDrive(){
   const list = getPdfHistori();
   // coba pakai katalog per-akun dulu → langsung tau fileId
@@ -1250,31 +1280,43 @@ try {
     const my = targets[idx++];
 
     try{
-      // 1) FAST-PATH: katalog per-akun → langsung unduh
+      // 1) Katalog per-akun (paling cepat)
       if (my.hash && catMap[my.hash]?.fileId) {
-        const blob = await withTimeout(window.DriveSync.fetchPdfBlob(catMap[my.hash].fileId), 15000);
+        const blob = await withTimeout(downloadViaDriveSyncOrFetch(catMap[my.hash].fileId), 15000);
         if (blob){
           await saveBlobToIndexedDB(my.hash, `${my.hash}.pdf`, blob, null);
           have.byHash.add(my.hash);
           if (my.name) have.byName.add(my.name);
-          continue; // lanjut item berikutnya; counter tetap di finally
+          continue;
         }
       }
 
-       // 2) Resolve via API idempoten (hash → fileId) lalu unduh
-      if (my.hash && window.DriveSync?.getFileIdByHash) {
-        const fileId = await withTimeout(window.DriveSync.getFileIdByHash(my.hash), 8000);
-        if (fileId) {
-          const blob = await withTimeout(window.DriveSync.fetchPdfBlob(fileId), 15000);
-          if (blob){
-            await saveBlobToIndexedDB(my.hash, `${my.hash}.pdf`, blob, null);
-            have.byHash.add(my.hash);
-            if (my.name) have.byName.add(my.name);
-            continue;
-          }
+      // 2) Idempoten API (hash -> fileId) kalau tersedia
+      let fileId = null;
+      if (my.hash && typeof window.DriveSync?.getFileIdByHash === 'function') {
+        fileId = await withTimeout(window.DriveSync.getFileIdByHash(my.hash), 8000);
+      }
+
+      // 3) Fallback query langsung (hash.pdf) jika belum ketemu
+      if (!fileId && my.hash) {
+        const hits = await withTimeout(driveFindByHash(my.hash), 8000);
+        if (hits && hits[0]?.id) fileId = hits[0].id;
+      }
+
+      // 4) Fallback terakhir: cari berdasarkan nama asli (kalau ada)
+      if (!fileId && my.name) {
+        const hits = await withTimeout(driveFindByName(my.name), 8000);
+        if (hits && hits[0]?.id) fileId = hits[0].id;
+      }
+
+      if (fileId) {
+        const blob = await withTimeout(downloadViaDriveSyncOrFetch(fileId), 15000);
+        if (blob){
+          await saveBlobToIndexedDB(my.hash || null, my.hash ? `${my.hash}.pdf` : (my.name || '(tanpa-nama)'), blob, null);
+          if (my.hash) have.byHash.add(my.hash);
+          if (my.name) have.byName.add(my.name);
         }
       }
-      // 3) Fallback terakhir (optional): kalau punya nama, boleh cari di DB lokal lain / skip
     } catch {
       // noop
     } finally {
@@ -1283,6 +1325,7 @@ try {
     }
   }
 }
+
 
   // ⚠️ FIX: panggil worker(), bukan pass referensi fungsi
   const workers = Array.from(
