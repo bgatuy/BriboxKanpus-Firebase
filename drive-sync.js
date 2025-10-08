@@ -287,6 +287,15 @@
     return list[0] || null;
   }
 
+  // Sanitasi nama file agar aman di Drive (buang karakter ilegal)
+function safeName(name, fallback = 'file.pdf') {
+  const n = String(name || '')
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+    .trim();
+  return n ? n.slice(0, 200) : fallback;
+}
+
+
   // ==== Resumable upload (2-step) untuk PDF ====
   async function driveResumableUpload(file, metadata, accessToken) {
     // 1) init session
@@ -357,74 +366,116 @@
     return r.blob();
   }
 
-  /** Simpan PDF idempoten: /Bribox Kanpus/pdfs/<sha256>.pdf
-   *  Dedupe prioritas:
-   *  1) appProperties.contentHash
-   *  2) nama file <hash>.pdf di subfolder
-   */
-  async function savePdfByHash(file, sha256) {
-    if (!file) throw new Error('File kosong');
-    if (!sha256) throw new Error('Hash kosong');
+  /** Simpan PDF idempoten:
+ *  - Nama file di Drive = nama asli upload (aman/disanitasi)
+ *  - Dedupe berbasis hash via appProperties (contentHash/sha256)
+ */
+async function savePdfByHash(file, sha256) {
+  if (!file)   throw new Error('File kosong');
+  if (!sha256) throw new Error('Hash kosong');
 
-    const uid = (window.Auth?.getUid?.() || 'anon');
-    const folderId = await ensureSub('pdfs');
+  const uid = (window.Auth?.getUid?.() || 'anon');
+  const folderId = await ensureSub('pdfs');
+  const cleanName = safeName(file.name || `${sha256}.pdf`);
 
-    // 1) Cari via appProperties hash (global, tidak tergantung nama)
-    try {
-      const q = `appProperties has { key='contentHash' and value='${sha256}' } and trashed=false`;
-      const hit = (await queryDrive(q, 'id,name,appProperties'))[0];
-      if (hit?.id) {
-        try {
-          const k = `PdfCatalog__${uid}`;
-          const cat = JSON.parse(localStorage.getItem(k) || '{}');
-          cat[sha256] = { id: hit.id, name: hit.name };
-          localStorage.setItem(k, JSON.stringify(cat));
-        } catch {}
-        return { fileId: hit.id, name: hit.name, folderId, deduped: true };
+  // 1) Cek dulu di folder /pdfs berdasarkan appProperties hash (paling akurat)
+  try {
+    const q = [
+      `'${folderId}' in parents`,
+      `mimeType = 'application/pdf'`,
+      `trashed = false`,
+      // dukung kunci lama (contentHash) & baru (sha256)
+      `(appProperties has { key='contentHash' and value='${sha256}' } or appProperties has { key='sha256' and value='${sha256}' })`
+    ].join(' and ');
+
+    const hit = (await queryDrive(q, 'id,name,appProperties'))[0];
+    if (hit?.id) {
+      // Optional: kalau mau rename ke nama upload terbaru, set true
+      const RENAME_TO_LATEST = false;
+      if (RENAME_TO_LATEST && hit.name !== cleanName) {
+        await fetch(`https://www.googleapis.com/drive/v3/files/${hit.id}`, {
+          method: 'PATCH',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ name: cleanName })
+        }).catch(()=>{});
+        hit.name = cleanName;
       }
-    } catch {}
+      // catat katalog lokal per-akun
+      try {
+        const k = `PdfCatalog__${uid}`;
+        const cat = JSON.parse(localStorage.getItem(k) || '{}');
+        cat[sha256] = { id: hit.id, name: hit.name };
+        localStorage.setItem(k, JSON.stringify(cat));
+      } catch {}
+      return { fileId: hit.id, name: hit.name, folderId, deduped: true };
+    }
+  } catch {}
 
-    // 2) Cari nama <hash>.pdf di subfolder
-    const fname = `${sha256}.pdf`;
-    try {
-      const exist = await findFileByName(fname, folderId);
-      if (exist?.id) {
-        try {
-          const k = `PdfCatalog__${uid}`;
-          const cat = JSON.parse(localStorage.getItem(k) || '{}');
-          cat[sha256] = { id: exist.id, name: exist.name };
-          localStorage.setItem(k, JSON.stringify(cat));
-        } catch {}
-        return { fileId: exist.id, name: fname, folderId, deduped: true };
+  // 2) Fallback lama: global cari via appProperties (kalau file dipindah user)
+  try {
+    const q = [
+      `mimeType = 'application/pdf'`,
+      `trashed = false`,
+      `(appProperties has { key='contentHash' and value='${sha256}' } or appProperties has { key='sha256' and value='${sha256}' })`
+    ].join(' and ');
+    const hit = (await queryDrive(q, 'id,name,appProperties,parents'))[0];
+    if (hit?.id) {
+      try {
+        const k = `PdfCatalog__${uid}`;
+        const cat = JSON.parse(localStorage.getItem(k) || '{}');
+        cat[sha256] = { id: hit.id, name: hit.name };
+        localStorage.setItem(k, JSON.stringify(cat));
+      } catch {}
+      return { fileId: hit.id, name: hit.name, folderId, deduped: true };
+    }
+  } catch {}
+
+  // 3) (opsional) dukung berkas sangat lama bernama "<hash>.pdf" di /pdfs
+  try {
+    const legacy = await findFileByName(`${sha256}.pdf`, folderId);
+    if (legacy?.id) {
+      try {
+        const k = `PdfCatalog__${uid}`;
+        const cat = JSON.parse(localStorage.getItem(k) || '{}');
+        cat[sha256] = { id: legacy.id, name: legacy.name };
+        localStorage.setItem(k, JSON.stringify(cat));
+      } catch {}
+      return { fileId: legacy.id, name: legacy.name, folderId, deduped: true };
+    }
+  } catch {}
+
+  // 4) Upload baru: nama = nama asli upload (aman). Simpan hash di appProperties.
+  const token = DS._getAccessToken?.() || DS.getAccessToken?.();
+  if (!token) throw new Error('Belum login Google Drive.');
+
+  const created = await driveResumableUpload(
+    file,
+    {
+      name: cleanName,
+      parents: [folderId],
+      description: 'Bribox Kanpus - original upload name preserved',
+      mimeType: file.type || 'application/pdf',
+      appProperties: {
+        contentHash: sha256, // kompat lama
+        sha256,               // kunci baru eksplisit
+        originName: file.name || ''
       }
-    } catch {}
+    },
+    token
+  );
 
-    // 3) Upload Resumable
-    const token = DS._getAccessToken?.() || DS.getAccessToken?.();
-    if (!token) throw new Error('Belum login Google Drive.');
+  // simpan katalog lokal per-akun
+  try {
+    const k = `PdfCatalog__${uid}`;
+    const cat = JSON.parse(localStorage.getItem(k) || '{}');
+    cat[sha256] = { id: created.id, name: cleanName };
+    localStorage.setItem(k, JSON.stringify(cat));
+  } catch {}
 
-    const up = await driveResumableUpload(
-      file,
-      {
-        name: fname,
-        parents: [folderId],
-        description: 'Bribox Kanpus - original',
-        appProperties: { contentHash: sha256, module: 'trackmate', uid }
-      },
-      token
-    );
+  console.log('[Drive] savePdfByHash OK:', { fileId: created.id, name: cleanName, deduped: false, hash: sha256 });
+  return { fileId: created.id, name: cleanName, folderId, deduped: false };
+}
 
-    // simpan katalog lokal per-akun
-    try {
-      const k = `PdfCatalog__${uid}`;
-      const cat = JSON.parse(localStorage.getItem(k) || '{}');
-      cat[sha256] = { id: up.id, name: fname };
-      localStorage.setItem(k, JSON.stringify(cat));
-    } catch {}
-
-    console.log('[Drive] savePdfByHash OK (resumable):', { fileId: up.id, deduped: false, hash: sha256 });
-    return { fileId: up.id, name: fname, folderId, deduped: false };
-  }
 
   /** Resolve Drive fileId dari hash:
    *  1) cek katalog lokal per-akun
