@@ -1,6 +1,6 @@
 {
   "hosting": {
-    "site": "briboxkanpus-5f7db",
+    "site": "briboxkanpus-10501",
     "public": ".",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "headers": [
