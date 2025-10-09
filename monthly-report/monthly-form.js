@@ -299,7 +299,7 @@
     all.push(rec);
     saveLocal(all);
 
-    showToastMsg('✅ Data tersimpan.');
+    showToastMsg('Data Tersimpan');
     form.reset();
     // pertahankan konteks bulan + tanggal default; jamMasuk biarkan auto via jamBerangkat (tidak di-set now)
     if (bulan)   bulan.value = month;
