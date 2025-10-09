@@ -200,69 +200,62 @@
 
   <!-- Prefs & UX -->
   <script>
-    // Dark mode awal
-    if (localStorage.getItem('darkMode') === 'true') {
-      document.body.classList.add('dark-mode');
-    }
-
-    // Toggle dark mode
-    function toggleDarkMode() {
+   if (localStorage.getItem('darkMode') === 'true') document.body.classList.add('dark-mode');
+    document.addEventListener('DOMContentLoaded', () => {
+      const b = document.getElementById('toggleModeBtn');
+      if (b) b.textContent = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
+    });
+    function toggleDarkMode(){
       const on = document.body.classList.toggle('dark-mode');
       localStorage.setItem('darkMode', on);
-      const b = document.getElementById('toggleModeBtn');
-      if (b) b.textContent = on ? '☀️' : '🌙';
+      const b = document.getElementById('toggleModeBtn'); if (b) b.textContent = on ? '☀️' : '🌙';
     }
-
-    // Sidebar show/hide (mobile vs desktop)
-    function toggleSidebar() {
+    function toggleSidebar(){
       const sb = document.querySelector('.sidebar');
       const isMobile = window.matchMedia('(max-width:768px)').matches;
       if (isMobile) sb.classList.toggle('visible'); else sb.classList.toggle('hidden');
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
-      // Icon dark mode saat load
-      const b = document.getElementById('toggleModeBtn');
-      if (b) b.textContent = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
+    (function(){
+    const m=document.getElementById('nav-monthly');
+    const p=document.querySelector('.nav-group[aria-controls="nav-monthly"]');
+    if(!m||!p) return;
+    const hasActive=!!m.querySelector('a.active');
+    p.setAttribute('aria-expanded', hasActive?'true':'false');
+    m.hidden=!hasActive;
+  })();
 
-      // Buka submenu Monthly sesuai halaman aktif
-      (function () {
-        const m = document.getElementById('nav-monthly');
-        const p = document.querySelector('.nav-group[aria-controls="nav-monthly"]');
-        if (!m || !p) return;
-        const hasActive = !!m.querySelector('a.active');
-        p.setAttribute('aria-expanded', hasActive ? 'true' : 'false');
-        m.hidden = !hasActive;
-      })();
+  document.addEventListener('DOMContentLoaded', () => {
+  if (document.body.dataset.page !== 'monthly') return;
 
-      // Swap posisi "Jam Berangkat" vs "Jam Masuk Laporan (auto)"
-      (function () {
-        if (document.body.dataset.page !== 'monthly') return;
-        const grid = document.querySelector('body[data-page="monthly"] .grid');
-        if (!grid) return;
+  // cari grid form utama
+  const grid = document.querySelector('body[data-page="monthly"] .grid');
+  if (!grid) return;
 
-        const findFieldByLabel = (txt) => {
-          const fields = grid.querySelectorAll('.field');
-          const norm = s => s.replace(/\s+/g, ' ').trim().toLowerCase();
-          const want = norm(txt);
-          return Array.from(fields).find(f => {
-            const sp = f.querySelector(':scope > span');
-            return sp && norm(sp.textContent) === want;
-          });
-        };
-
-        const fBerangkat = findFieldByLabel('Jam Berangkat');
-        const fLaporan = findFieldByLabel('Jam Masuk Laporan (auto)');
-
-        if (fBerangkat && fLaporan && fBerangkat !== fLaporan) {
-          const placeholder = document.createElement('div');
-          grid.insertBefore(placeholder, fBerangkat);
-          grid.replaceChild(fBerangkat, fLaporan);
-          grid.insertBefore(fLaporan, placeholder);
-          grid.removeChild(placeholder);
-        }
-      })();
+  // helper: cari .field berdasarkan teks label (span pertama di dalam .field)
+  const findFieldByLabel = (txt) => {
+    const fields = grid.querySelectorAll('.field');
+    const norm = s => s.replace(/\s+/g,' ').trim().toLowerCase();
+    const want = norm(txt);
+    return Array.from(fields).find(f => {
+      const sp = f.querySelector(':scope > span');
+      return sp && norm(sp.textContent) === want;
     });
+  };
+
+  // target yang mau ditukar
+  const fBerangkat = findFieldByLabel('Jam Berangkat');
+  const fLaporan  = findFieldByLabel('Jam Masuk Laporan (auto)');
+
+  if (fBerangkat && fLaporan && fBerangkat !== fLaporan) {
+    // swap posisi node di dalam grid (tanpa clone → event/listener tetap aman)
+    const placeholder = document.createElement('div');
+    grid.insertBefore(placeholder, fBerangkat);
+    grid.replaceChild(fBerangkat, fLaporan);
+    grid.insertBefore(fLaporan, placeholder);
+    grid.removeChild(placeholder);
+  }
+});
   </script>
 
   <!-- Auth + Guard -->

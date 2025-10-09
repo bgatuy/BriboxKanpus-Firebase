@@ -126,30 +126,30 @@
       const isMobile = window.matchMedia('(max-width:768px)').matches;
       if (isMobile) sb.classList.toggle('visible'); else sb.classList.toggle('hidden');
     }
+  
+function setStickyOffsets(){
+    const h1 = document.querySelector('.table thead tr.h1');
+    if(!h1) return;
+    const h = Math.ceil(h1.getBoundingClientRect().height);
+    // targetkan langsung ke body[data-page="monthly"] supaya override benar
+    const bodyMonthly = document.querySelector('body[data-page="monthly"]') || document.body;
+    bodyMonthly.style.setProperty('--th-h1', h + 'px');
+  }
+  window.addEventListener('load', setStickyOffsets);
+  window.addEventListener('resize', setStickyOffsets);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(setStickyOffsets);
+  window.recalcStickyHeader = setStickyOffsets;
 
-    function setStickyOffsets(){
-      const h1 = document.querySelector('.table thead tr.h1');
-      if(!h1) return;
-      const h = Math.ceil(h1.getBoundingClientRect().height);
-      // targetkan langsung ke body[data-page="monthly"] supaya override benar
-      const bodyMonthly = document.querySelector('body[data-page="monthly"]') || document.body;
-      bodyMonthly.style.setProperty('--th-h1', h + 'px');
-    }
-    window.addEventListener('load', setStickyOffsets);
-    window.addEventListener('resize', setStickyOffsets);
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(setStickyOffsets);
-    window.recalcStickyHeader = setStickyOffsets;
-
-    // buka submenu otomatis jika salah satu child memiliki .active
-    (function(){
-      const m=document.getElementById('nav-monthly');
-      const p=document.querySelector('.nav-group[aria-controls="nav-monthly"]');
-      if(!m||!p) return;
-      const hasActive=!!m.querySelector('a.active');
-      p.setAttribute('aria-expanded', hasActive?'true':'false');
-      m.hidden=!hasActive;
-    })();
-  </script>
+  // buka submenu otomatis jika salah satu child memiliki .active
+  (function(){
+    const m=document.getElementById('nav-monthly');
+    const p=document.querySelector('.nav-group[aria-controls="nav-monthly"]');
+    if(!m||!p) return;
+    const hasActive=!!m.querySelector('a.active');
+    p.setAttribute('aria-expanded', hasActive?'true':'false');
+    m.hidden=!hasActive;
+  })();
+</script>
 
   <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
   <!-- Auth + Guard -->

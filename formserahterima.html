@@ -146,13 +146,6 @@
         b.textContent=d?'☀️':'🌙';
         b.setAttribute('aria-pressed',String(d));
       }
-      // Default tanggal = hari ini (lokal)
-      const dt=document.getElementById('tglSerahTerima');
-      if(dt && !dt.value){
-        const z=new Date();
-        const pad=n=>String(n).padStart(2,'0');
-        dt.value=`${z.getFullYear()}-${pad(z.getMonth()+1)}-${pad(z.getDate())}`;
-      }
     });
     function toggleDarkMode(){
       const d=document.body.classList.toggle('dark-mode');
