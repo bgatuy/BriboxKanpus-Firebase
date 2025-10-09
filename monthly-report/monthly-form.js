@@ -102,7 +102,7 @@
     if (A==null || B==null) return null;
     let d = B - A; if (d < 0) d += 1440; return d;
   };
-  function showToastMsg(msg) {
+  function showToast(msg) {
     if (!toast) return;
     toast.textContent = msg; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 1600);
   }
@@ -255,7 +255,7 @@
     const month = (bulan?.value || '').trim();
     const dateStr = (tanggal?.value || '').trim();
     const tech = (teknisi?.value || '').trim();
-    if (!month || !dateStr || !tech) { showToastMsg('Bulan, Tanggal, dan Teknisi wajib diisi.'); return; }
+    if (!month || !dateStr || !tech) { showToast('Bulan, Tanggal, dan Teknisi wajib diisi.'); return; }
 
     // pakai auto fields (jamMasuk = jamBerangkat - 5)
     computeAutoFields();
@@ -299,7 +299,7 @@
     all.push(rec);
     saveLocal(all);
 
-    showToastMsg('✅ Data tersimpan.');
+    showToast('✅ Data tersimpan.');
     form.reset();
     // pertahankan konteks bulan + tanggal default; jamMasuk biarkan auto via jamBerangkat (tidak di-set now)
     if (bulan)   bulan.value = month;
