@@ -23,5 +23,5 @@ jobs:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BRIBOXKANPUS_5F7DB }}
           channelId: pr-${{ github.event.number }}
-          projectId: briboxkanpus-5f7db   # <- samakan dengan di atas
+          projectId: briboxkanpus-10501   # <- samakan dengan di atas
           expires: 7d
