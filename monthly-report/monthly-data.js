@@ -1,7 +1,6 @@
-// monthly-data.js — XLSX export + per-akun storage + Drive mirror (clean)
 (function () {
-  const STORAGE_KEY = "monthlyReports";
-  const ACTIVE_TECH_KEY = "activeTechnician";
+  const STORAGE_KEY = "monthlyReports";              // kunci TUNGGAL
+  const LEGACY_KEY  = "monthlyData";                 // dibersihkan saat reset / migrasi
 
   // ===== UID helper (per-akun)
   function getUidOrAnon() {
@@ -13,37 +12,21 @@
           || 'anon';
     } catch { return 'anon'; }
   }
-  function monthlyCloudFile() {
-    return `.monthly_data__${getUidOrAnon()}.json`;
-  }
+  function monthlyCloudFile() { return `.monthly_data__${getUidOrAnon()}.json`; }
 
   /* ========== USER-SCOPE (per akun) ========== */
   const LS = {
     getItem(k){ return (window.AccountNS?.getItem?.(k)) ?? localStorage.getItem(k); },
     setItem(k,v){ if (window.AccountNS?.setItem) window.AccountNS.setItem(k, v); else localStorage.setItem(k, v); },
+    removeItem(k){ try { if (window.AccountNS?.setItem) window.AccountNS.setItem(k, null); localStorage.removeItem(k);} catch{} },
     readJSON(k, def=[]){ try { return JSON.parse(this.getItem(k) || ''); } catch { return def; } },
     writeJSON(k, obj){ this.setItem(k, JSON.stringify(obj ?? [])); }
   };
-
-  // tulis ke 2 storage: legacy (monthlyReports) + primary (monthlyData)
-  function writeBothStores(arr){
-    try {
-      LS.writeJSON("monthlyReports", arr || []);
-      LS.writeJSON("monthlyData",    arr || []);
-    } catch {}
-  }
 
   // ===== utils
   const $ = (id) => document.getElementById(id);
   const pad = (n) => String(n).padStart(2, "0");
   const norm = (s) => String(s || "").toLowerCase().normalize("NFKD").replace(/\s+/g, " ").trim();
-
-  function getActiveTechnician(){
-    try { return LS.getItem(ACTIVE_TECH_KEY) || ""; } catch { return ""; }
-  }
-  function setActiveTechnician(name){
-    try { LS.setItem(ACTIVE_TECH_KEY, String(name||"")); } catch {}
-  }
 
   function loadReports() { return LS.readJSON(STORAGE_KEY, []); }
   function saveReports(arr) { LS.writeJSON(STORAGE_KEY, arr || []); }
@@ -52,26 +35,33 @@
     t.textContent = msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), 1600);
   }
 
-  // ===== Cloud mirror adapters (per akun via LS wrapper)
-  async function monthlyGetLocal(){ return LS.readJSON(STORAGE_KEY, []); }
-  async function monthlySetLocal(arr){ writeBothStores(arr || []); }
-
-  // merge helper: gabung by id, pilih createdAt/updatedAt terbaru
-  function mergeByIdNewest(localArr, incomingArr){
-    const map = new Map();
-    (Array.isArray(localArr)?localArr:[]).forEach(r => {
-      const id = r.id || [r.month,r.date,r.teknisi,r.createdAt].filter(Boolean).join('|');
-      map.set(id, r);
-    });
-    (Array.isArray(incomingArr)?incomingArr:[]).forEach(r => {
-      const id = r.id || [r.month,r.date,r.teknisi,r.createdAt].filter(Boolean).join('|');
-      const ex = map.get(id);
-      const tNew = new Date(r.updatedAt || r.createdAt || 0).getTime();
-      const tOld = new Date(ex?.updatedAt || ex?.createdAt || 0).getTime();
-      if (!ex || tNew >= tOld) map.set(id, r);
-    });
-    return Array.from(map.values());
+  // ===== Migrasi sekali: gabungkan legacy -> STORAGE_KEY, lalu hapus legacy
+  function migrateOnce(){
+    try {
+      const a = LS.readJSON(STORAGE_KEY, []);
+      const b = LS.readJSON(LEGACY_KEY,  []);
+      if (!b.length) return; // tidak ada legacy
+      const map = new Map();
+      const normRec = (x) => ({ id: x.id || [x.month,x.date,x.teknisi,x.createdAt].filter(Boolean).join('|'), ...x });
+      [...a, ...b].forEach(r=>{
+        const n = normRec(r); const ex = map.get(n.id);
+        if (!ex) map.set(n.id,n);
+        else {
+          const tNew = new Date(n.updatedAt || n.createdAt || 0).getTime();
+          const tOld = new Date(ex.updatedAt || ex.createdAt || 0).getTime();
+          if (tNew >= tOld) map.set(n.id, n);
+        }
+      });
+      LS.writeJSON(STORAGE_KEY, Array.from(map.values()));
+      // bersihkan legacy agar tak kebaca lagi
+      LS.removeItem(LEGACY_KEY);
+    } catch {}
   }
+  migrateOnce();
+
+  // ===== Cloud mirror adapters
+  async function monthlyGetLocal(){ return LS.readJSON(STORAGE_KEY, []); }
+  async function monthlySetLocal(arr){ LS.writeJSON(STORAGE_KEY, arr || []); }
 
   // Debounced push ke Drive
   let _pushTimer = null;
@@ -98,8 +88,9 @@
       if (months[0]) return months[0];
     }
     const d = new Date();
-    return `${d.getFullYear()}-${d.getMonth()+1 < 9 ? '0' : ''}${d.getMonth()+1}`;
-  }
+    const pad = n => String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}`;}
+
   const month = pickActiveMonth();
 
   // ===== elem refs
@@ -107,8 +98,6 @@
   const tbody = $("tbody");
   const empty = $("empty");
   const badgeMonth = $("badgeMonth");
-  const btnExportXlsx = $("btnExportXlsx");
-  const btnReset = $("btnReset");
 
   // badge bulan
   (function setBadge(){
@@ -121,10 +110,7 @@
   // ===== filtering + render
   function applyFilters(){
     const q = norm(qInput?.value || "");
-    const activeTech = getActiveTechnician();
     let rows = loadReports().filter(r=>r.month===month);
-
-    if (activeTech) rows = rows.filter(r => (r.teknisi||"") === activeTech); // lock per-individu (opsional)
 
     if(q){
       rows = rows.filter(r=>{
@@ -132,7 +118,6 @@
           r.tanggalLabel,r.date,r.teknisi,r.lokasiDari,r.lokasiKe,r.jenis,r.detail,r.status,
           r.keterangan,r.jamMasuk,r.jamBerangkat,r.jamTiba,r.jamMulai,r.jamSelesai,
           r.durasiPenyelesaianStr,r.waktuTempuhStr,
-          // ikutkan angka sebagai teks sederhana
           String(r.jarakKm ?? r.jarak ?? '')
         ].map(norm).join(" ");
         return hay.includes(q);
@@ -146,7 +131,9 @@
   }
   window.applyFilters = applyFilters;
 
-  const esc = (s)=> String(s).replace(/[&<>"']/g,(m)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
+  const esc = (s)=> String(s).replace(/[&<>"']/g, m => (
+  { "&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;", "'":"&#39;" }[m]
+));
   const fmtJam = (v) => {
     if (v == null || v === "") return "";
     const m = String(v).match(/^(\d{1,2}):(\d{2})$/);
@@ -157,7 +144,7 @@
   function renderTable(rows){
     if(!tbody) return;
     tbody.innerHTML = rows.map(r=>{
-      const jarakVal = (r.jarakKm != null ? r.jarakKm : r.jarak); // dukung dua kunci
+      const jarakVal = (r.jarakKm != null ? r.jarakKm : r.jarak);
       return `
       <tr data-id="${esc(r.id)}">
         <td>${esc(r.tanggalLabel||r.date||"-")}</td>
@@ -180,22 +167,18 @@
       </tr>`;
     }).join("");
 
-    // Hapus baris (click & dblclick)
-    const doDelete = async (id) => {
-      if(!id) return;
-      if(!confirm("Hapus entri ini?")) return;
-      const kept = loadReports().filter(x=>(x.id||"")!==id);
-      writeBothStores(kept);
-      showToast("Entri dihapus.");
-      applyFilters();
-      await pushMirrorSilent(); // mirror Drive
-    };
-
+    // Hapus baris
     tbody.querySelectorAll(".btn-del").forEach(btn=>{
-      btn.addEventListener("click", () => doDelete(btn.getAttribute("data-id")));
-    });
-    tbody.querySelectorAll("tr").forEach(tr=>{
-      tr.addEventListener("dblclick", () => doDelete(tr.getAttribute("data-id")));
+      btn.addEventListener("click", async ()=>{
+        const id = btn.getAttribute("data-id");
+        if(!id) return;
+        if(!confirm("Hapus entri ini?")) return;
+        const kept = loadReports().filter(x=>(x.id||"")!==id);
+        saveReports(kept);
+        showToast("Entri dihapus.");
+        applyFilters();
+        await pushMirrorSilent(); // mirror Drive
+      });
     });
   }
 
@@ -501,26 +484,43 @@
     }catch(err){ console.error('Export XLSX error:',err); showToast('Gagal export XLSX. Cek console.'); }
   }
 
-  // ===== Reset bulan
+   // ===== Reset bulan (BERSIHKAN LEGACY JUGA) =====
   function resetMonth(){
-    const all=loadReports(); const n=all.filter(r=>r.month===month).length; if(!n) return showToast('Tidak ada data untuk direset.');
+    const all = loadReports();
+    const n = all.filter(r=>r.month===month).length;
+    if(!n) return showToast('Tidak ada data untuk direset.');
     if(!confirm(`Hapus ${n} entri untuk bulan ${month}?`)) return;
-    const kept = all.filter(r=>r.month!==month);
-    writeBothStores(kept); // tulis ke legacy + primary
+
+    // Simpan STORAGE_KEY tersaring
+    saveReports(all.filter(r=>r.month!==month));
+
+    // Hapus legacy key (monthlyData) sekalian agar Form tidak melihat data lama lagi
+    try {
+      const legacyArr = LS.readJSON(LEGACY_KEY, []);
+      if (legacyArr.length) {
+        const keptLegacy = legacyArr.filter(r => r.month !== month);
+        if (keptLegacy.length) LS.writeJSON(LEGACY_KEY, keptLegacy);
+        else LS.removeItem(LEGACY_KEY);
+      } else {
+        LS.removeItem(LEGACY_KEY);
+      }
+    } catch {}
+
     showToast('Data bulan ini sudah dihapus.');
     applyFilters();
-    pushMirrorSilent(); // dorong ke Drive
+    pushMirrorSilent();
+    try { localStorage.setItem('__monthly_broadcast', String(Date.now())); } catch {}
   }
 
   // ===== events
-  $("q") && $("q").addEventListener('input', applyFilters);
-  $("btnExportXlsx") && $("btnExportXlsx").addEventListener('click', exportXLSX);
-  $("btnReset") && $("btnReset").addEventListener('click', resetMonth);
+  $("q")?.addEventListener('input', applyFilters);
+  $("btnExportXlsx")?.addEventListener('click', exportXLSX);
+  $("btnReset")?.addEventListener('click', resetMonth);
 
   document.addEventListener('DOMContentLoaded', async () => {
     applyFilters?.();
 
-    // Pull → merge → render (pakai MonthlySync kalau ada; kalau tidak, fallback ke Drive langsung)
+    // Pull → merge → render
     const doPull = async () => {
       if (window.MonthlySync?.pull) {
         await window.MonthlySync.pull(monthlyGetLocal, monthlySetLocal, () => applyFilters());
@@ -531,18 +531,40 @@
         if (!ok && !window.DriveSync?.isLogged?.()) return;
         const cloudObj = await window.DriveSync?.getJson?.(monthlyCloudFile());
         const incoming =
-          Array.isArray(cloudObj?.data) ? cloudObj.data
-        : Array.isArray(cloudObj)     ? cloudObj
-        : [];
-        if (incoming.length) {
-          const merged = mergeByIdNewest(await monthlyGetLocal(), incoming);
-          await monthlySetLocal(merged);
+            Array.isArray(cloudObj?.data) ? cloudObj.data
+          : Array.isArray(cloudObj)       ? cloudObj
+          : [];
+          await monthlySetLocal(incoming); // REPLACE lokal dengan cloud
           applyFilters?.();
-        }
+        
       } catch (e) {
         console.warn('[Monthly] pull gagal:', e);
       }
     };
     await doPull();
   });
+
+  // Jika tab lain mengubah storage -> refresh tabel
+  window.addEventListener('storage', (e) => {
+    if (!e?.key) return;
+    const k = e.key.endsWith('::'+getUidOrAnon()) ? e.key.split('::')[0] : e.key;
+    if (k === STORAGE_KEY || k === LEGACY_KEY) applyFilters();
+  });
+
+  // ===== merge helper (dipakai di pull & migrasi)
+  function mergeByIdNewest(localArr, incomingArr){
+    const map = new Map();
+    (Array.isArray(localArr)?localArr:[]).forEach(r => {
+      const id = r.id || [r.month,r.date,r.teknisi,r.createdAt].filter(Boolean).join('|');
+      map.set(id, r);
+    });
+    (Array.isArray(incomingArr)?incomingArr:[]).forEach(r => {
+      const id = r.id || [r.month,r.date,r.teknisi,r.createdAt].filter(Boolean).join('|');
+      const ex = map.get(id);
+      const tNew = new Date(r.updatedAt || r.createdAt || 0).getTime();
+      const tOld = new Date(ex?.updatedAt || ex?.createdAt || 0).getTime();
+      if (!ex || tNew >= tOld) map.set(id, r);
+    });
+    return Array.from(map.values());
+  }
 })();

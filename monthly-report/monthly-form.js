@@ -1,13 +1,21 @@
 (function () {
   /* ================= CORE STORAGE (per akun) ================= */
-  const STORAGE_PRIMARY = 'monthlyData';         // konsisten dgn mirror keys
-  const STORAGE_LEGACY  = 'monthlyReports';      // dibaca utk migrasi
+  // Kita gunakan SATU kunci saja: 'monthlyReports'.
+  // Di init akan migrasi dari 'monthlyData' (legacy) sekali, lalu menghapusnya.
+  const STORAGE_KEY = 'monthlyReports';
+  const LEGACY_KEYS = ['monthlyData', 'monthlyReports']; // untuk migrasi/kompat
 
   const LS = {
     getItem(k){ return (window.AccountNS?.getItem?.(k)) ?? localStorage.getItem(k); },
     setItem(k,v){
       if (window.AccountNS?.setItem) window.AccountNS.setItem(k, v);
       else localStorage.setItem(k, v);
+    },
+    removeItem(k){
+      try {
+        if (window.AccountNS?.setItem) window.AccountNS.setItem(k, null);
+        localStorage.removeItem(k);
+      } catch {}
     }
   };
 
@@ -24,35 +32,40 @@
 
   function parseJSON(s, def){ try { return JSON.parse(s); } catch { return def; } }
 
-  function loadLocalMerged() {
-    // baca primary + legacy, merge unik by id (last-write-wins by updatedAt/createdAt)
-    const a = parseJSON(LS.getItem(STORAGE_PRIMARY) || '[]', []);
-    const b = parseJSON(LS.getItem(STORAGE_LEGACY)  || '[]', []);
-    const map = new Map();
-    const norm = (x) => {
-      const id = x.id || [x.month, x.date, x.teknisi, x.createdAt].filter(Boolean).join('|');
-      return { id, ...x };
-    };
-    [...a, ...b].forEach(r => {
-      const n = norm(r);
-      const ex = map.get(n.id);
-      if (!ex) map.set(n.id, n);
-      else {
-        const tNew = new Date(n.updatedAt || n.createdAt || 0).getTime();
-        const tOld = new Date(ex.updatedAt || ex.createdAt || 0).getTime();
-        if (tNew >= tOld) map.set(n.id, n);
-      }
-    });
-    return Array.from(map.values());
+  function loadLocal() {
+    return parseJSON(LS.getItem(STORAGE_KEY) || '[]', []);
   }
-
   function saveLocal(arr) {
     const safe = JSON.stringify(Array.isArray(arr) ? arr : []);
-    // tulis ke primary; legacy disinkronkan agar tetap backward-compat
-    LS.setItem(STORAGE_PRIMARY, safe);
-    LS.setItem(STORAGE_LEGACY,  safe);
-    // dorong ke Drive (debounced) supaya device lain kebagian
+    LS.setItem(STORAGE_KEY, safe);
     try { window.MonthlySync?.queuePush?.(monthlyGetLocal); } catch {}
+  }
+
+  // Migrasi sekali: gabungkan legacy (monthlyData, monthlyReports lama) -> STORAGE_KEY, lalu bersihkan legacy
+  function migrateOnce(){
+    try {
+      const buckets = LEGACY_KEYS.map(k => parseJSON(LS.getItem(k) || '[]', []))
+        .filter(Array.isArray);
+      const map = new Map();
+      const norm = (x) => {
+        const id = x.id || [x.month, x.date, x.teknisi, x.createdAt].filter(Boolean).join('|');
+        return { id, ...x };
+      };
+      buckets.flat().forEach(r => {
+        const n = norm(r);
+        const ex = map.get(n.id);
+        if (!ex) map.set(n.id, n);
+        else {
+          const tNew = new Date(n.updatedAt || n.createdAt || 0).getTime();
+          const tOld = new Date(ex.updatedAt || ex.createdAt || 0).getTime();
+          if (tNew >= tOld) map.set(n.id, n);
+        }
+      });
+      const merged = Array.from(map.values());
+      LS.setItem(STORAGE_KEY, JSON.stringify(merged));
+      // hapus legacy agar tak kebaca lagi di tempat lain
+      LS.removeItem('monthlyData');
+    } catch {}
   }
 
   /* ================== ELEMENT REFS ================== */
@@ -113,7 +126,7 @@
   function refreshCountForMonth(month) {
     if (!countBulan) return;
     try {
-      const all = loadLocalMerged();
+      const all = loadLocal();
       countBulan.textContent = all.filter(x => (x.month||'').trim() === month).length;
     } catch { countBulan.textContent = '0'; }
   }
@@ -138,26 +151,30 @@
   /* ================== AUTO FIELDS ================== */
   function computeAutoFields() {
     // jamMasuk otomatis = jamBerangkat - 5 menit (wrap 24h)
-    const berangkat = parseTimeToMin(jamBerangkat.value);
-    if (berangkat != null) {
+    const berangkat = parseTimeToMin(jamBerangkat?.value);
+    if (berangkat != null && jamMasuk) {
       const masuk = (berangkat - 5 + 1440) % 1440;
       const hh = Math.floor(masuk / 60), mm = masuk % 60;
       jamMasuk.value = `${pad(hh)}:${pad(mm)}`;
-    } else {
+    } else if (jamMasuk) {
       jamMasuk.value = '';
     }
 
     // waktu tempuh
-    const tempuh = diffWrap(jamBerangkat.value, jamTiba.value);
-    waktuTempuh.value = tempuh==null ? '0:00' : toHHMM(tempuh);
+    if (waktuTempuh) {
+      const tempuh = diffWrap(jamBerangkat?.value, jamTiba?.value);
+      waktuTempuh.value = tempuh==null ? '0:00' : toHHMM(tempuh);
+    }
 
     // durasi pekerjaan
-    const dur = diffWrap(jamMulai.value, jamSelesai.value);
-    durasiPenyelesaian.value = dur==null ? '0:00' : toHHMM(dur);
+    if (durasiPenyelesaian) {
+      const dur = diffWrap(jamMulai?.value, jamSelesai?.value);
+      durasiPenyelesaian.value = dur==null ? '0:00' : toHHMM(dur);
+    }
   }
 
   /* ================== CLOUD MIRROR ADAPTERS ================== */
-  async function monthlyGetLocal() { return loadLocalMerged(); }
+  async function monthlyGetLocal() { return loadLocal(); }
   async function monthlySetLocal(arr) { saveLocal(arr || []); }
 
   // Siapkan MonthlySync bila belum ada — gunakan envelope { data: [...] }
@@ -168,13 +185,11 @@
     const pull = async (getLocal, setLocal, onAfter) => {
       try {
         const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
-        if (!ok && !window.DriveSync?.isLogged?.()) return;
+        if (!ok && !window.DriveSync?.isLogged?.()) return onAfter && onAfter();
         const cloud = await window.DriveSync?.getJson?.(fileName());
-        // dukung dua bentuk: {data:[...]} atau langsung array
         const incoming = Array.isArray(cloud?.data) ? cloud.data : (Array.isArray(cloud) ? cloud : []);
         if (!incoming.length) { onAfter && onAfter(); return; }
 
-        // merge last-write-wins
         const base = await getLocal();
         const map = new Map();
         const norm = (x) => {
@@ -194,7 +209,7 @@
         await setLocal(Array.from(map.values()));
         onAfter && onAfter();
       } catch (e) {
-        console.warn('[MonthlySync.fallback.pull] gagal:', e);
+        console.warn('[MonthlySync.pull] gagal:', e);
         onAfter && onAfter();
       }
     };
@@ -212,7 +227,7 @@
           if (!Array.isArray(rows)) return;
           await window.DriveSync?.putJson?.(fileName(), { data: rows });
         } catch (e) {
-          console.warn('[MonthlySync.fallback.queuePush] gagal:', e);
+          console.warn('[MonthlySync.queuePush] gagal:', e);
         }
       }, 800);
     };
@@ -221,56 +236,39 @@
   })();
 
   /* ================== INIT ================== */
-  (function init(){
-    if (bulan)   bulan.value = thisMonth();
-    if (tanggal) tanggal.value = todayISO();
-    setLinkTargets(bulan?.value || thisMonth());
-    refreshCountForMonth(bulan?.value || thisMonth());
-    populateTeknisi();
+(function init(){
+  // ... isi init kamu ...
+})(); // <<== selesai init
 
-    [jamBerangkat, jamTiba, jamMulai, jamSelesai].forEach(inp => {
-      ['input', 'change'].forEach(ev => inp?.addEventListener(ev, computeAutoFields));
-    });
-    computeAutoFields();
+// === sinkronisasi antar-tab: storage-change & tab fokus ===
+let _syncTimer = null;
 
-    bulan?.addEventListener('change', () => {
-      setLinkTargets(bulan.value);
-      refreshCountForMonth(bulan.value);
-    });
+async function syncFromCloudAndRefresh(monthStr) {
+  try {
+    await window.MonthlySync?.pull?.(monthlyGetLocal, monthlySetLocal, () => {});
+  } catch {}
+  refreshCountForMonth(monthStr);
+  setLinkTargets?.(monthStr);
+}
 
-    // tarik data cloud → merge ke lokal → refresh counter (lintas device)
-    (async () => {
-      try {
-        await window.MonthlySync?.pull?.(monthlyGetLocal, monthlySetLocal, () => {
-          refreshCountForMonth(bulan?.value || thisMonth());
-        });
-      } catch { /* silent */ }
-    })();
-  })();
+window.addEventListener('storage', (e) => {
+  if (!e?.key) return;
+  const raw = e.key;
+  const key = raw.includes('::') ? raw.split('::')[0] : raw; // jika AccountNS pakai suffix ::uid
 
-  /* ========== RESET FORM: kosong total, pertahankan bulan & tanggal ========== */
-  form?.addEventListener('reset', () => {
-    setTimeout(() => {
-      const keepMonth = bulan?.value || thisMonth();
+  if (key === STORAGE_KEY || key === '__monthly_broadcast') {
+    const m = bulan?.value || new Date().toISOString().slice(0,7);
+    clearTimeout(_syncTimer);
+    _syncTimer = setTimeout(() => syncFromCloudAndRefresh(m), 150);
+  }
+});
 
-      // kembalikan konteks dasar
-      if (bulan)   bulan.value = keepMonth;
-      if (tanggal) tanggal.value = todayISO();
-
-      // bersihkan semua kolom manual
-      [teknisi, jenis, lokasiDari, lokasiKe, detail, status, jarak, keterangan]
-        .forEach(el => { if (el) el.value = ''; });
-
-      // bersihkan auto-fields (biarkan kosong; jangan hitung)
-      [jamBerangkat, jamMasuk, jamTiba, jamMulai, jamSelesai, durasiPenyelesaian, waktuTempuh]
-        .forEach(el => { if (el) el.value = ''; });
-
-      // perbarui tautan & counter (menghitung data tersimpan, bukan isi form)
-      setLinkTargets(keepMonth);
-      refreshCountForMonth(keepMonth);
-      // jangan computeAutoFields di sini—biarkan user input lagi
-    }, 0);
-  });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  const m = bulan?.value || new Date().toISOString().slice(0,7);
+  clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(() => syncFromCloudAndRefresh(m), 0);
+});
 
   /* ================== SUBMIT ================== */
   form?.addEventListener('submit', async (e) => {
@@ -284,8 +282,8 @@
     // pakai auto fields (jamMasuk = jamBerangkat - 5)
     computeAutoFields();
 
-    const tempuhMin  = diffWrap(jamBerangkat.value, jamTiba.value) ?? 0;
-    const durPenyMin = diffWrap(jamMulai.value, jamSelesai.value) ?? 0;
+    const tempuhMin  = diffWrap(jamBerangkat?.value, jamTiba?.value) ?? 0;
+    const durPenyMin = diffWrap(jamMulai?.value, jamSelesai?.value) ?? 0;
 
     const rec = {
       id: (crypto.randomUUID ? crypto.randomUUID() : (String(Date.now()) + Math.random().toString(16).slice(2))),
@@ -304,7 +302,6 @@
       jamMulai: jamMulai?.value || '',
       jamSelesai: jamSelesai?.value || '',
 
-      // simpan dua bentuk untuk kompatibilitas halaman Data
       durasiPenyelesaianMin: durPenyMin,
       durasiPenyelesaianStr: toHHMM(durPenyMin),
       durasiPenyelesaian: toHHMM(durPenyMin),
@@ -314,21 +311,23 @@
       waktuTempuhStr: toHHMM(tempuhMin),
       waktuTempuh: toHHMM(tempuhMin),
 
+      keterangan: (keterangan?.value || '').trim(),
+
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       source: 'monthly-form@clean'
     };
 
-    const all = loadLocalMerged();
+    const all = loadLocal();
     all.push(rec);
     saveLocal(all);
 
     showToastMsg('Data Tersimpan');
-    form.reset();                     // handler reset akan mengosongkan total
-    if (bulan)   bulan.value = month; // tetap di bulan yang sama
+    form.reset();
+    if (bulan)   bulan.value = month;
     if (tanggal) tanggal.value = todayISO();
     setLinkTargets(month);
     refreshCountForMonth(month);
-    // JANGAN panggil computeAutoFields di sini; biarkan kosong dulu
+    computeAutoFields();
   });
 })();
