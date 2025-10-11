@@ -25,6 +25,14 @@
     writeJSON(k, obj){ this.setItem(k, JSON.stringify(obj ?? [])); }
   };
 
+  // tulis ke 2 storage: legacy (monthlyReports) + primary (monthlyData)
+  function writeBothStores(arr){
+    try {
+      LS.writeJSON("monthlyReports", arr || []);
+      LS.writeJSON("monthlyData",    arr || []);
+    } catch {}
+  }
+
   // ===== utils
   const $ = (id) => document.getElementById(id);
   const pad = (n) => String(n).padStart(2, "0");
@@ -46,7 +54,7 @@
 
   // ===== Cloud mirror adapters (per akun via LS wrapper)
   async function monthlyGetLocal(){ return LS.readJSON(STORAGE_KEY, []); }
-  async function monthlySetLocal(arr){ LS.writeJSON(STORAGE_KEY, arr || []); }
+  async function monthlySetLocal(arr){ writeBothStores(arr || []); }
 
   // merge helper: gabung by id, pilih createdAt/updatedAt terbaru
   function mergeByIdNewest(localArr, incomingArr){
@@ -172,32 +180,22 @@
       </tr>`;
     }).join("");
 
-    // Hapus baris
-    tbody.querySelectorAll(".btn-del").forEach(btn=>{
-      btn.addEventListener("click", async ()=>{
-        const id = btn.getAttribute("data-id");
-        if(!id) return;
-        if(!confirm("Hapus entri ini?")) return;
-        const kept = loadReports().filter(x=>(x.id||"")!==id);
-        saveReports(kept);
-        showToast("Entri dihapus.");
-        applyFilters();
-        await pushMirrorSilent(); // mirror Drive
-      });
-    });
+    // Hapus baris (click & dblclick)
+    const doDelete = async (id) => {
+      if(!id) return;
+      if(!confirm("Hapus entri ini?")) return;
+      const kept = loadReports().filter(x=>(x.id||"")!==id);
+      writeBothStores(kept);
+      showToast("Entri dihapus.");
+      applyFilters();
+      await pushMirrorSilent(); // mirror Drive
+    };
 
-    // Dblclick = hapus juga
+    tbody.querySelectorAll(".btn-del").forEach(btn=>{
+      btn.addEventListener("click", () => doDelete(btn.getAttribute("data-id")));
+    });
     tbody.querySelectorAll("tr").forEach(tr=>{
-      tr.addEventListener("dblclick", async () => {
-        const id = tr.getAttribute("data-id");
-        if (!id) return;
-        if (!confirm("Hapus entri ini?")) return;
-        const kept = loadReports().filter(x=>(x.id||"")!==id);
-        saveReports(kept);
-        showToast("Entri dihapus.");
-        applyFilters();
-        await pushMirrorSilent();
-      });
+      tr.addEventListener("dblclick", () => doDelete(tr.getAttribute("data-id")));
     });
   }
 
@@ -507,10 +505,11 @@
   function resetMonth(){
     const all=loadReports(); const n=all.filter(r=>r.month===month).length; if(!n) return showToast('Tidak ada data untuk direset.');
     if(!confirm(`Hapus ${n} entri untuk bulan ${month}?`)) return;
-    saveReports(all.filter(r=>r.month!==month));
+    const kept = all.filter(r=>r.month!==month);
+    writeBothStores(kept); // tulis ke legacy + primary
     showToast('Data bulan ini sudah dihapus.');
     applyFilters();
-    pushMirrorSilent();
+    pushMirrorSilent(); // dorong ke Drive
   }
 
   // ===== events
@@ -519,29 +518,31 @@
   $("btnReset") && $("btnReset").addEventListener('click', resetMonth);
 
   document.addEventListener('DOMContentLoaded', async () => {
-   applyFilters?.();
+    applyFilters?.();
 
-   const doPull = async () => {
-     if (window.MonthlySync?.pull) {
-       await window.MonthlySync.pull(monthlyGetLocal, monthlySetLocal, () => applyFilters());
-       return;
-     }
-     try {
-       const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
-       if (!ok && !window.DriveSync?.isLogged?.()) return;
-       const cloudObj = await window.DriveSync?.getJson?.(monthlyCloudFile());
-      const incoming = Array.isArray(cloudObj?.data) ? cloudObj.data
-                       : Array.isArray(cloudObj)     ? cloudObj
-                       : [];
-      if (incoming.length) {
-        const merged = mergeByIdNewest(await monthlyGetLocal(), incoming);
-        await monthlySetLocal(merged);
-        applyFilters?.();
+    // Pull → merge → render (pakai MonthlySync kalau ada; kalau tidak, fallback ke Drive langsung)
+    const doPull = async () => {
+      if (window.MonthlySync?.pull) {
+        await window.MonthlySync.pull(monthlyGetLocal, monthlySetLocal, () => applyFilters());
+        return;
       }
-    } catch (e) {
-      console.warn('[Monthly] pull gagal:', e);
-    }
-  };
-  await doPull();
-});
+      try {
+        const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+        if (!ok && !window.DriveSync?.isLogged?.()) return;
+        const cloudObj = await window.DriveSync?.getJson?.(monthlyCloudFile());
+        const incoming =
+          Array.isArray(cloudObj?.data) ? cloudObj.data
+        : Array.isArray(cloudObj)     ? cloudObj
+        : [];
+        if (incoming.length) {
+          const merged = mergeByIdNewest(await monthlyGetLocal(), incoming);
+          await monthlySetLocal(merged);
+          applyFilters?.();
+        }
+      } catch (e) {
+        console.warn('[Monthly] pull gagal:', e);
+      }
+    };
+    await doPull();
+  });
 })();

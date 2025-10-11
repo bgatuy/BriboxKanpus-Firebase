@@ -248,37 +248,29 @@
     })();
   })();
 
-  // === Reset form: kosong total tapi pertahankan konteks bulan & tanggal ===
-form?.addEventListener('reset', () => {
-  // tunda sejenak biar reset native selesai
-  setTimeout(() => {
-    const keepMonth = bulan?.value || (() => {
-      const d=new Date(); const pad=n=>String(n).padStart(2,'0');
-      return `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
-    })();
+  /* ========== RESET FORM: kosong total, pertahankan bulan & tanggal ========== */
+  form?.addEventListener('reset', () => {
+    setTimeout(() => {
+      const keepMonth = bulan?.value || thisMonth();
 
-    // kembalikan konteks
-    if (bulan)   bulan.value = keepMonth;
-    if (tanggal) {
-      const d=new Date(), pad=n=>String(n).padStart(2,'0');
-      tanggal.value = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-    }
+      // kembalikan konteks dasar
+      if (bulan)   bulan.value = keepMonth;
+      if (tanggal) tanggal.value = todayISO();
 
-    // bersihkan semua kolom manual/teks/select
-    [teknisi, jenis, lokasiDari, lokasiKe, detail, status, jarak, keterangan]
-      .forEach(el => { if (el) el.value = ''; });
+      // bersihkan semua kolom manual
+      [teknisi, jenis, lokasiDari, lokasiKe, detail, status, jarak, keterangan]
+        .forEach(el => { if (el) el.value = ''; });
 
-    // bersihkan auto-fields (jangan hitung apa-apa)
-    [jamBerangkat, jamMasuk, jamTiba, jamMulai, jamSelesai, durasiPenyelesaian, waktuTempuh]
-      .forEach(el => { if (el) el.value = ''; });
+      // bersihkan auto-fields (biarkan kosong; jangan hitung)
+      [jamBerangkat, jamMasuk, jamTiba, jamMulai, jamSelesai, durasiPenyelesaian, waktuTempuh]
+        .forEach(el => { if (el) el.value = ''; });
 
-    // perbarui link & counter
-    setLinkTargets(keepMonth);
-    refreshCountForMonth(keepMonth);
-    // penting: JANGAN panggil computeAutoFields di sini — biarkan kosong dulu
-  }, 0);
-});
-
+      // perbarui tautan & counter (menghitung data tersimpan, bukan isi form)
+      setLinkTargets(keepMonth);
+      refreshCountForMonth(keepMonth);
+      // jangan computeAutoFields di sini—biarkan user input lagi
+    }, 0);
+  });
 
   /* ================== SUBMIT ================== */
   form?.addEventListener('submit', async (e) => {
@@ -332,12 +324,11 @@ form?.addEventListener('reset', () => {
     saveLocal(all);
 
     showToastMsg('Data Tersimpan');
-    form.reset();
-    // pertahankan konteks bulan + tanggal default; jamMasuk biarkan auto via jamBerangkat (tidak di-set now)
-    if (bulan)   bulan.value = month;
+    form.reset();                     // handler reset akan mengosongkan total
+    if (bulan)   bulan.value = month; // tetap di bulan yang sama
     if (tanggal) tanggal.value = todayISO();
     setLinkTargets(month);
     refreshCountForMonth(month);
-    computeAutoFields();
+    // JANGAN panggil computeAutoFields di sini; biarkan kosong dulu
   });
 })();
