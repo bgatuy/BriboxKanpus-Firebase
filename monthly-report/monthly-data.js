@@ -138,7 +138,7 @@
   }
   window.applyFilters = applyFilters;
 
-  const esc = (s)=> String(s).replace(/[&<>"']/g,(m)=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
+  const esc = (s)=> String(s).replace(/[&<>"']/g,(m)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
   const fmtJam = (v) => {
     if (v == null || v === "") return "";
     const m = String(v).match(/^(\d{1,2}):(\d{2})$/);
@@ -519,32 +519,29 @@
   $("btnReset") && $("btnReset").addEventListener('click', resetMonth);
 
   document.addEventListener('DOMContentLoaded', async () => {
-    applyFilters?.();
+   applyFilters?.();
 
-    // Pull → merge → render (pakai MonthlySync kalau ada; kalau tidak, fallback ke Drive langsung)
-    const doPull = async () => {
-      if (window.MonthlySync?.pull) {
-        await window.MonthlySync.pull(monthlyGetLocal, monthlySetLocal, () => applyFilters());
-        return;
+   const doPull = async () => {
+     if (window.MonthlySync?.pull) {
+       await window.MonthlySync.pull(monthlyGetLocal, monthlySetLocal, () => applyFilters());
+       return;
+     }
+     try {
+       const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+       if (!ok && !window.DriveSync?.isLogged?.()) return;
+       const cloudObj = await window.DriveSync?.getJson?.(monthlyCloudFile());
+      const incoming = Array.isArray(cloudObj?.data) ? cloudObj.data
+                       : Array.isArray(cloudObj)     ? cloudObj
+                       : [];
+      if (incoming.length) {
+        const merged = mergeByIdNewest(await monthlyGetLocal(), incoming);
+        await monthlySetLocal(merged);
+        applyFilters?.();
       }
-      try {
-        const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
-        if (!ok && !window.DriveSync?.isLogged?.()) return;
-        const cloudObj = await window.DriveSync?.getJson?.(monthlyCloudFile());
-      const incoming =
-  Array.isArray(cloudObj?.data) ? cloudObj.data
-  : Array.isArray(cloudObj)     ? cloudObj
-  : [];
-
-if (incoming.length) {
-  const merged = mergeByIdNewest(await monthlyGetLocal(), incoming);
-  await monthlySetLocal(merged);
-  applyFilters?.();
-}
-} catch (e) {
-  console.warn('[Monthly] pull gagal:', e);
-}
-}
-await monthlyPullAndRender();
+    } catch (e) {
+      console.warn('[Monthly] pull gagal:', e);
+    }
+  };
+  await doPull();
 });
 })();
