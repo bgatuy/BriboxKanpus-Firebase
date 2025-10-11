@@ -432,45 +432,21 @@ body[data-page="serah"] .controls-bar{
 }
 /* ===== TOAST — Mobile cepat & pasti muncul ===== */
 .toast{
-  /* posisi & tampilan tetap sesuai punyamu */
   position: fixed;
   top: max(12px, env(safe-area-inset-top));
   right: 12px;
-  z-index: 9999;
-  color: #fff;
-  padding: 8px 12px;
-  border-radius: 8px;
-  box-shadow: 0 6px 12px rgba(0,0,0,.18);
-  max-width: 90vw;
-  cursor: pointer;
-  font-size: 14px;
-
-  /* animasi ringan (jangan 'all'), pakai GPU path */
-  opacity: 0;
-  transform: translate3d(0,-10px,0);
-  transition: opacity .16s ease-out, transform .16s ease-out;
-  will-change: opacity, transform;
-  backface-visibility: hidden;
+  z-index: 2147483647;
+  color:#fff; background:#28a745;
+  padding:8px 12px; border-radius:8px; box-shadow:0 6px 12px rgba(0,0,0,.18);
+  max-width:90vw; cursor:pointer; font-size:14px;
+  opacity:0; transform:translate3d(0,-10px,0);
+  transition: opacity .18s ease, transform .18s ease;
+  will-change: opacity, transform; backface-visibility:hidden;
 }
-.toast.show{
-  opacity: 1;
-  transform: translate3d(0,0,0);
-}
-.toast.hiding{
-  opacity: 0;
-  transform: translate3d(0,-6px,0);
-}
-
-/* mobile sizing kecil */
-@media (max-width:480px){
-  .toast{ font-size:12px; padding:7px 10px; right:12px; }
-}
-
-/* accessibility: hormati reduced motion */
-@media (prefers-reduced-motion: reduce){
-  .toast{ transition: none; }
-}
-
+.toast.show{   opacity:1; transform:translate3d(0,0,0); }
+.toast.hiding{ opacity:0; transform:translate3d(0,-6px,0); }
+@media (max-width:480px){ .toast{ font-size:12px; padding:7px 10px; } }
+@media (prefers-reduced-motion: reduce){ .toast{ transition:none; } }
 
 /* =========================
    EXTRA
