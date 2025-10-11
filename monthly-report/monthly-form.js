@@ -68,6 +68,36 @@
     } catch {}
   }
 
+  /* ========= SIDEBAR ========= */
+const sidebar   = document.querySelector('.sidebar');
+const overlay   = document.getElementById('sidebarOverlay') || document.querySelector('.sidebar-overlay');
+const sidebarLinks = document.querySelectorAll('.sidebar a');
+
+function openSidebar() { sidebar.classList.add('visible'); overlay?.classList.add('show'); document.body.style.overflow = 'hidden'; }
+function closeSidebar() { sidebar.classList.remove('visible'); overlay?.classList.remove('show'); document.body.style.overflow = ''; }
+function toggleSidebar() { sidebar.classList.contains('visible') ? closeSidebar() : openSidebar(); }
+window.toggleSidebar = toggleSidebar;
+
+overlay?.addEventListener('click', closeSidebar);
+document.addEventListener('click', (e) => {
+  const isMobile = window.matchMedia('(max-width: 768px)').matches;
+  if (!isMobile) return;
+  const clickInsideSidebar = sidebar.contains(e.target);
+  const clickOnToggle = e.target.closest('.sidebar-toggle-btn');
+  if (sidebar.classList.contains('visible') && !clickInsideSidebar && !clickOnToggle) closeSidebar();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && sidebar.classList.contains('visible')) closeSidebar(); });
+sidebarLinks.forEach(a => a.addEventListener('click', closeSidebar));
+
+document.addEventListener('DOMContentLoaded', function () {
+  const title = document.querySelector('.dashboard-header h1')?.textContent?.toLowerCase() || "";
+  const body = document.body;
+  if (title.includes('trackmate'))      body.setAttribute('data-page', 'trackmate');
+  else if (title.includes('appsheet'))  body.setAttribute('data-page', 'appsheet');
+  else if (title.includes('serah'))     body.setAttribute('data-page', 'serah');
+  else if (title.includes('merge'))     body.setAttribute('data-page', 'merge');
+});
+
   /* ================== ELEMENT REFS ================== */
   const $id = (id) => document.getElementById(id);
   const bulan = $id('bulan');
