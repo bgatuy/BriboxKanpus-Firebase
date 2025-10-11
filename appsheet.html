@@ -56,17 +56,7 @@
         </div>
       </header>
 
-      <!-- Connect Drive bar -->
-      <div id="driveConnectBar" class="drive-connect-bar" style="display:none;margin-bottom:12px">
-        <div class="card" style="display:flex;gap:10px;align-items:center;padding:10px;">
-          <span class="material-icons" aria-hidden="true">cloud_off</span>
-          <div style="flex:1">
-            <b>Google Drive belum tersambung.</b>
-            <div style="font-size:12px;opacity:.8">Klik sekali untuk menyambungkan agar file tersimpan ke Drive.</div>
-          </div>
-          <button id="btnConnectDrive" type="button" class="primary">Connect Google Drive</button>
-        </div>
-      </div>
+      <!-- (Bar Connect Drive dihapus di halaman ini) -->
 
       <section class="card" aria-labelledby="uploadTitle">
         <h3 id="uploadTitle">Upload Form PDF Kalian Disini Lalu Pilih Lokasi Divisi!</h3>
@@ -201,42 +191,19 @@
   <script src="auth.js" defer></script>
   <script defer>document.addEventListener('DOMContentLoaded',()=>{ try{ Auth.enforce(); }catch{} });</script>
 
-  <!-- Drive core -->
+  <!-- Drive core (tetap ada; pakai token dari Trackmate jika sudah connect) -->
   <script src="drive-sync.js?v=pure-oauth-2" defer></script>
   <script src="drive-queue.js" defer></script>
 
-  <!-- Banner connect: auto-resume + broadcast + init queue -->
-  <script defer>
-  document.addEventListener('DOMContentLoaded', async () => {
-    // init queue di halaman ini juga
-    try { window.DriveQueue?.init?.(); } catch {}
-
-    const bar = document.getElementById('driveConnectBar');
-    const btn = document.getElementById('btnConnectDrive');
-
-    // 1) coba resume token
-    let ok = false;
-    try { ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false)); } catch {}
-    if (ok) { bar?.remove?.(); } else if (bar) { bar.style.display = 'block'; }
-
-    // 2) dengar broadcast antar tab
-    try {
-      const bc = ('BroadcastChannel' in window) ? new BroadcastChannel('bribox-drive') : null;
-      bc?.addEventListener('message', (ev) => {
-        if (ev.data?.type !== 'drive-auth') return;
-        if (ev.data.status === 'in')  bar?.remove?.();
-        if (ev.data.status === 'out') { if (bar) bar.style.display = 'block'; }
-      });
-    } catch {}
-
-    // 3) tombol connect
-    btn?.addEventListener('click', async () => {
-      btn.disabled = true;
-      try { await DriveSync.signIn(); bar?.remove?.(); }
-      catch (e) { alert('Gagal connect Drive.\n' + (e?.message || e)); bar && (bar.style.display = 'block'); }
-      finally { btn.disabled = false; }
+  <!-- Firebase init (tanpa popup di halaman ini) -->
+  <script type="module" src="firebase-init.js"></script>
+  <script type="module">
+    import { ensureFirebase } from './firebase-init.js';
+    await ensureFirebase();
+    // Inisialisasi queue; kalau token dari Trackmate sudah ada, antrean langsung jalan
+    document.addEventListener('DOMContentLoaded', () => {
+      try { window.DriveQueue?.init?.(); } catch {}
     });
-  });
   </script>
 
   <!-- File picker: hanya simpan state; upload ditangani di appsheet.js / queue -->

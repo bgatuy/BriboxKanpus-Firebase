@@ -248,6 +248,38 @@
     })();
   })();
 
+  // === Reset form: kosong total tapi pertahankan konteks bulan & tanggal ===
+form?.addEventListener('reset', () => {
+  // tunda sejenak biar reset native selesai
+  setTimeout(() => {
+    const keepMonth = bulan?.value || (() => {
+      const d=new Date(); const pad=n=>String(n).padStart(2,'0');
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
+    })();
+
+    // kembalikan konteks
+    if (bulan)   bulan.value = keepMonth;
+    if (tanggal) {
+      const d=new Date(), pad=n=>String(n).padStart(2,'0');
+      tanggal.value = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    }
+
+    // bersihkan semua kolom manual/teks/select
+    [teknisi, jenis, lokasiDari, lokasiKe, detail, status, jarak, keterangan]
+      .forEach(el => { if (el) el.value = ''; });
+
+    // bersihkan auto-fields (jangan hitung apa-apa)
+    [jamBerangkat, jamMasuk, jamTiba, jamMulai, jamSelesai, durasiPenyelesaian, waktuTempuh]
+      .forEach(el => { if (el) el.value = ''; });
+
+    // perbarui link & counter
+    setLinkTargets(keepMonth);
+    refreshCountForMonth(keepMonth);
+    // penting: JANGAN panggil computeAutoFields di sini — biarkan kosong dulu
+  }, 0);
+});
+
+
   /* ================== SUBMIT ================== */
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();

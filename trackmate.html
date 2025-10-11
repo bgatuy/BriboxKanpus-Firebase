@@ -202,7 +202,7 @@
   <!-- Namespacing per-akun (LS/DB) -->
   <script src="user-scope.js" defer></script>
 
-  <!-- Auth (hanya enforce; GIS tidak wajib di halaman ini) -->
+  <!-- Auth (enforce proteksi halaman) -->
   <script src="auth.js" defer></script>
   <script defer>document.addEventListener('DOMContentLoaded',()=>{ try{ Auth.enforce(); }catch{} });</script>
 
@@ -210,21 +210,24 @@
   <script src="drive-sync.js?v=pure-oauth-2" defer></script>
   <script src="drive-queue.js" defer></script>
 
-  <!-- Banner connect: init queue + auto-resume + broadcast sinkron antar halaman -->
-  <script defer>
-    document.addEventListener('DOMContentLoaded', async () => {
-      // init DriveQueue (idempotent)
-      try { window.DriveQueue?.init?.(); } catch {}
+  <!-- Firebase init (ONE POPUP: Firestore + Drive scope) -->
+  <script type="module" src="firebase-init.js"></script>
+  <script type="module">
+    import { ensureFirebase, signInOnePopupForDriveAndFirestore } from './firebase-init.js';
 
+    // Pastikan Firebase siap (tidak memunculkan popup)
+    await ensureFirebase();
+
+    document.addEventListener('DOMContentLoaded', () => {
       const bar = document.getElementById('driveConnectBar');
       const btn = document.getElementById('btnConnectDrive');
+      const btnAuth = document.getElementById('btnAuth');
 
-      // 1) coba resume token
-      let ok = false;
-      try { ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false)); } catch {}
-      if (ok) { bar?.remove?.(); } else if (bar) { bar.style.display = 'block'; }
+      // Tampilkan/hilangkan bar tergantung token Drive yang sudah ada
+      const hasToken = !!(window.DriveSync?.getAccessToken?.());
+      if (hasToken) { bar?.remove?.(); } else if (bar) { bar.style.display = 'block'; }
 
-      // 2) dengarkan broadcast dari halaman lain (tanpa refresh)
+      // Dengarkan broadcast dari tab lain
       try {
         const bc = ('BroadcastChannel' in window) ? new BroadcastChannel('bribox-drive') : null;
         bc?.addEventListener('message', (ev) => {
@@ -234,13 +237,28 @@
         });
       } catch {}
 
-      // 3) tombol connect
-      btn?.addEventListener('click', async () => {
-        btn.disabled = true;
-        try { await DriveSync.signIn(); bar?.remove?.(); }
-        catch (e) { alert('Gagal connect Drive.\n' + (e?.message || e)); bar && (bar.style.display = 'block'); }
-        finally { btn.disabled = false; }
-      });
+      // Handler login (header) = sama dengan Connect Drive (satu popup)
+      async function doLoginAndConnect(){
+        const btnLike = btn || btnAuth;
+        if (btnLike) btnLike.disabled = true;
+        try {
+          await signInOnePopupForDriveAndFirestore(); // login Firebase + dapat token Drive + pass ke DriveSync
+          bar?.remove?.();
+          // optional: broadcast "in"
+          try {
+            const bc = ('BroadcastChannel' in window) ? new BroadcastChannel('bribox-drive') : null;
+            bc?.postMessage?.({ type:'drive-auth', status:'in' });
+          } catch {}
+        } catch (e) {
+          alert('Gagal login & connect Drive.\n' + (e?.message || e));
+          if (bar) bar.style.display = 'block';
+        } finally {
+          if (btnLike) btnLike.disabled = false;
+        }
+      }
+
+      btn?.addEventListener('click', doLoginAndConnect);
+      btnAuth?.addEventListener('click', doLoginAndConnect);
     });
   </script>
 
