@@ -236,39 +236,59 @@
   })();
 
   /* ================== INIT ================== */
-(function init(){
-  // ... isi init kamu ...
-})(); // <<== selesai init
+  (function init(){
+    migrateOnce();
 
-// === sinkronisasi antar-tab: storage-change & tab fokus ===
-let _syncTimer = null;
+    if (bulan)   bulan.value = thisMonth();
+    if (tanggal) tanggal.value = todayISO();
+    setLinkTargets(bulan?.value || thisMonth());
+    refreshCountForMonth(bulan?.value || thisMonth());
+    populateTeknisi();
 
-async function syncFromCloudAndRefresh(monthStr) {
-  try {
-    await window.MonthlySync?.pull?.(monthlyGetLocal, monthlySetLocal, () => {});
-  } catch {}
-  refreshCountForMonth(monthStr);
-  setLinkTargets?.(monthStr);
-}
+    [jamBerangkat, jamTiba, jamMulai, jamSelesai].forEach(inp => {
+      ['input', 'change'].forEach(ev => inp?.addEventListener(ev, computeAutoFields));
+    });
+    computeAutoFields();
 
-window.addEventListener('storage', (e) => {
+    bulan?.addEventListener('change', () => {
+      setLinkTargets(bulan.value);
+      refreshCountForMonth(bulan.value);
+    });
+
+    // tarik data cloud → merge ke lokal → refresh counter (lintas device)
+    (async () => {
+      try {
+        await window.MonthlySync?.pull?.(monthlyGetLocal, monthlySetLocal, () => {
+          refreshCountForMonth(bulan?.value || thisMonth());
+        });
+      } catch { /* silent */ }
+    })();
+
+    // === sinkronisasi antar-tab: storage-change & tab fokus ===
+window.addEventListener('storage', async (e) => {
   if (!e?.key) return;
   const raw = e.key;
-  const key = raw.includes('::') ? raw.split('::')[0] : raw; // jika AccountNS pakai suffix ::uid
+  // jika pakai AccountNS yang menambah suffix ::uid, buang suffix-nya
+  const key = raw.includes('::') ? raw.split('::')[0] : raw;
 
   if (key === STORAGE_KEY || key === '__monthly_broadcast') {
-    const m = bulan?.value || new Date().toISOString().slice(0,7);
-    clearTimeout(_syncTimer);
-    _syncTimer = setTimeout(() => syncFromCloudAndRefresh(m), 150);
+    const m = bulan?.value || (new Date()).toISOString().slice(0,7);
+    try {
+      // PENTING: tarik dari cloud agar lokal tidak me-resurrect data lama
+      await window.MonthlySync?.pull?.(monthlyGetLocal, monthlySetLocal, () => {});
+    } catch {}
+    refreshCountForMonth(m);
   }
 });
 
-document.addEventListener('visibilitychange', () => {
+// Saat tab kembali fokus, pastikan data paling baru
+document.addEventListener('visibilitychange', async () => {
   if (document.hidden) return;
-  const m = bulan?.value || new Date().toISOString().slice(0,7);
-  clearTimeout(_syncTimer);
-  _syncTimer = setTimeout(() => syncFromCloudAndRefresh(m), 0);
+  const m = bulan?.value || (new Date()).toISOString().slice(0,7);
+  try { await window.MonthlySync?.pull?.(monthlyGetLocal, monthlySetLocal, () => {}); } catch {}
+  refreshCountForMonth(m);
 });
+  })();
 
   /* ================== SUBMIT ================== */
   form?.addEventListener('submit', async (e) => {
