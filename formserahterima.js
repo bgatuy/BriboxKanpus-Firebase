@@ -982,40 +982,46 @@ btnGenerate?.addEventListener('click', async ()=>{
 });
 
 // ========== TOMBOL BARU (jika ada di HTML) ==========
-btnGenCombo?.addEventListener('click', async ()=>{
+btnGenCombo?.addEventListener('click', async (e) => {
+  e.preventDefault();
   const tanggalInput = inputTanggalSerah?.value || '';
-  if(!tanggalInput){ alert('Isi Tanggal Serah Terima dulu.'); return; }
-  if (!(await ensureLocalBlobsReadyOrWarn())) return;
-  try{ showSpinner(); await generateCombinedSelected(); }
-  catch(err){ console.error(err); alert('Gagal membuat PDF gabungan.'); }
-  finally{ hideSpinner(); }
+  if (!tanggalInput) { alert('Isi Tanggal Serah Terima dulu.'); return; }
+  if (!(await window.ensureLocalBlobsReadyOrWarn())) return;
+  try { showSpinner(); await generateCombinedSelected(); }
+  catch (err) { console.error(err); alert('Gagal membuat PDF gabungan.'); }
+  finally { hideSpinner(); }
 });
 
-btnGenCMOnly?.addEventListener('click', async ()=>{
+btnGenCMOnly?.addEventListener('click', async (e) => {
+  e.preventDefault();
   const tanggalInput = inputTanggalSerah?.value || '';
-  if(!tanggalInput){ alert('Isi Tanggal Serah Terima dulu.'); return; }
-  try{ showSpinner(); const b = await buildFormCMBlob(); await downloadBlob(b,'Form Tanda Terima CM.pdf');
-       try{ if (typeof window.saveGeneratedPdfSilent === 'function') await window.saveGeneratedPdfSilent(b,'Form Tanda Terima CM'); }catch{} }
-  catch(err){ console.error(err); alert('Gagal membuat FORM CM.'); }
-  finally{ hideSpinner(); }
+  if (!tanggalInput) { alert('Isi Tanggal Serah Terima dulu.'); return; }
+  try { showSpinner(); const b = await buildFormCMBlob(); await downloadBlob(b,'Form Tanda Terima CM.pdf');
+        try { if (typeof window.saveGeneratedPdfSilent === 'function') await window.saveGeneratedPdfSilent(b,'Form Tanda Terima CM'); } catch {}
+      }
+  catch (err) { console.error(err); alert('Gagal membuat FORM CM.'); }
+  finally { hideSpinner(); }
 });
 
-btnGenFilesOnly?.addEventListener('click', async ()=>{
-  // ambil baris yang tercentang SAJA
+btnGenFilesOnly?.addEventListener('click', async (e) => {
+  e.preventDefault();
   const selected = Array.from(document.querySelectorAll('#historiBody tr[data-name], #historiBody tr[data-hash]'))
     .filter(tr => tr.querySelector('input.pick')?.checked)
     .map(tr => ({ hash: tr.getAttribute('data-hash') || '', name: tr.getAttribute('data-name') || '' }));
 
-  if (selected.length === 0) {
-    alert('Pilih minimal satu file dulu (ceklist di kolom paling kiri).');
-    return;
-  }
-  if (!(await ensureLocalBlobsReadyOrWarn())) return;
-  
-  try{ showSpinner(); await generateOriginalsOnly(selected); }
-  catch(err){ console.error(err); alert('Gagal menggabungkan PDF asli.'); }
-  finally{ hideSpinner(); }
+  if (selected.length === 0) { alert('Pilih minimal satu file dulu (ceklist di kolom paling kiri).'); return; }
+  if (!(await window.ensureLocalBlobsReadyOrWarn())) return;
+
+  try { showSpinner(); await generateOriginalsOnly(selected); }
+  catch (err) { console.error(err); alert('Gagal menggabungkan PDF asli.'); }
+  finally { hideSpinner(); }
 });
+
+document.addEventListener('DOMContentLoaded', () => {
+  [btnGenerate, btnGenCombo, btnGenCMOnly, btnGenFilesOnly, btnReset]
+    .forEach(b => b?.setAttribute('type','button'));
+});
+
 
 document.addEventListener('DOMContentLoaded', async ()=>{
   renderTabel();
@@ -1341,8 +1347,7 @@ try {
   await Promise.all(workers);
   finishHydrateBanner();
 }
-
-async function ensureLocalBlobsReadyOrWarn() {
+  window.ensureLocalBlobsReadyOrWarn = async function ensureLocalBlobsReadyOrWarn() {
   try {
     const a = await getAllPdfBuffersFromIndexedDB([]);
     if (a && a.length) return true;
@@ -1352,8 +1357,7 @@ async function ensureLocalBlobsReadyOrWarn() {
   } catch {}
   alert('File PDF asli belum tersinkron dari Drive. Coba tunggu sebentar lalu klik lagi.');
   return false;
-}
-
+  };
   // Hook: setelah render/pull cloud, coba hydrate diam-diam + progres
   document.addEventListener('DOMContentLoaded', async ()=>{
     try { await hydrateMissingBlobsFromDrive(); } catch {}
