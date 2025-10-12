@@ -210,7 +210,7 @@ function renderTabel(){
   if (btnGenCMOnly)  btnGenCMOnly.disabled  = !iso;
   if (btnGenFilesOnly){
     const anyChecked = !!document.querySelector('#historiBody input.pick:checked');
-    btnGenFilesOnly.disabled = !iso || (!anyChecked && !!pickAll);
+    btnGenFilesOnly.disabled = !iso || !anyChecked;
   }
 
 
@@ -900,7 +900,7 @@ function updateButtonsState() {
 
   if (btnGenFilesOnly) {
     const anyChecked = !!document.querySelector('#historiBody input.pick:checked');
-    btnGenFilesOnly.disabled = !iso || (!anyChecked && !!pickAll);
+    btnGenFilesOnly.disabled = !iso || !anyChecked;
   }
 }
 
@@ -978,13 +978,14 @@ tbody?.addEventListener('click', async (e) => {
 
 pickAll?.addEventListener('change', () => {
   document.querySelectorAll('#historiBody input.pick').forEach(cb => cb.checked = pickAll.checked);
+  syncPickAllState();
   updateButtonsState(); // master checkbox juga pengaruh tombol "PDF Terpilih"
 });
 
 // Auto-refresh saat tab kembali fokus (pull cloud + hydrate -> render)
 document.addEventListener('visibilitychange', async () => {
   if (document.hidden) return;
-  try { await FSTSync?.pullCloudToLocal?.(); } catch {}
+  try { await window.FSTSync?.pullCloudToLocal?.(); } catch {}
   // renderTabel() dipanggil di dalam pullCloudToLocal override-mu;
   // panggil helper lagi agar tombol pasti sinkron.
   updateButtonsState();
@@ -1036,6 +1037,7 @@ btnGenFilesOnly?.addEventListener('click', async ()=>{
 document.addEventListener('DOMContentLoaded', async ()=>{
   renderTabel();
   loadNama();
+  updateButtonsState();
   // Pull histori dari cloud ke lokal (merge) saat halaman dibuka
   try { await window.FSTSync?.pullCloudToLocal?.(); } catch {}
 });
