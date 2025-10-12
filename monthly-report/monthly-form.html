@@ -200,7 +200,7 @@
 
   <!-- Prefs & UX -->
   <script>
-   if (localStorage.getItem('darkMode') === 'true') document.body.classList.add('dark-mode');
+    if (localStorage.getItem('darkMode') === 'true') document.body.classList.add('dark-mode');
     document.addEventListener('DOMContentLoaded', () => {
       const b = document.getElementById('toggleModeBtn');
       if (b) b.textContent = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
@@ -217,45 +217,45 @@
     }
 
     (function(){
-    const m=document.getElementById('nav-monthly');
-    const p=document.querySelector('.nav-group[aria-controls="nav-monthly"]');
-    if(!m||!p) return;
-    const hasActive=!!m.querySelector('a.active');
-    p.setAttribute('aria-expanded', hasActive?'true':'false');
-    m.hidden=!hasActive;
-  })();
+      const m=document.getElementById('nav-monthly');
+      const p=document.querySelector('.nav-group[aria-controls="nav-monthly"]');
+      if(!m||!p) return;
+      const hasActive=!!m.querySelector('a.active');
+      p.setAttribute('aria-expanded', hasActive?'true':'false');
+      m.hidden=!hasActive;
+    })();
 
-  document.addEventListener('DOMContentLoaded', () => {
-  if (document.body.dataset.page !== 'monthly') return;
+    document.addEventListener('DOMContentLoaded', () => {
+      if (document.body.dataset.page !== 'monthly') return;
 
-  // cari grid form utama
-  const grid = document.querySelector('body[data-page="monthly"] .grid');
-  if (!grid) return;
+      // cari grid form utama
+      const grid = document.querySelector('body[data-page="monthly"] .grid');
+      if (!grid) return;
 
-  // helper: cari .field berdasarkan teks label (span pertama di dalam .field)
-  const findFieldByLabel = (txt) => {
-    const fields = grid.querySelectorAll('.field');
-    const norm = s => s.replace(/\s+/g,' ').trim().toLowerCase();
-    const want = norm(txt);
-    return Array.from(fields).find(f => {
-      const sp = f.querySelector(':scope > span');
-      return sp && norm(sp.textContent) === want;
+      // helper: cari .field berdasarkan teks label (span pertama di dalam .field)
+      const findFieldByLabel = (txt) => {
+        const fields = grid.querySelectorAll('.field');
+        const norm = s => s.replace(/\s+/g,' ').trim().toLowerCase();
+        const want = norm(txt);
+        return Array.from(fields).find(f => {
+          const sp = f.querySelector(':scope > span');
+          return sp && norm(sp.textContent) === want;
+        });
+      };
+
+      // target yang mau ditukar
+      const fBerangkat = findFieldByLabel('Jam Berangkat');
+      const fLaporan  = findFieldByLabel('Jam Masuk Laporan (auto)');
+
+      if (fBerangkat && fLaporan && fBerangkat !== fLaporan) {
+        // swap posisi node di dalam grid (tanpa clone → event/listener tetap aman)
+        const placeholder = document.createElement('div');
+        grid.insertBefore(placeholder, fBerangkat);
+        grid.replaceChild(fBerangkat, fLaporan);
+        grid.insertBefore(fLaporan, placeholder);
+        grid.removeChild(placeholder);
+      }
     });
-  };
-
-  // target yang mau ditukar
-  const fBerangkat = findFieldByLabel('Jam Berangkat');
-  const fLaporan  = findFieldByLabel('Jam Masuk Laporan (auto)');
-
-  if (fBerangkat && fLaporan && fBerangkat !== fLaporan) {
-    // swap posisi node di dalam grid (tanpa clone → event/listener tetap aman)
-    const placeholder = document.createElement('div');
-    grid.insertBefore(placeholder, fBerangkat);
-    grid.replaceChild(fBerangkat, fLaporan);
-    grid.insertBefore(fLaporan, placeholder);
-    grid.removeChild(placeholder);
-  }
-});
   </script>
 
   <!-- Auth + Guard -->
