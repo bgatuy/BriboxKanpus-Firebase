@@ -879,49 +879,40 @@ function manifestName(){ return `.bribox_histori__${getUidOrAnon()}.json`; }
 
 
 /********************
- *   EVENTS + STATE *
+ *   EVENTS         *
  ********************/
-
-function updateButtonsState() {
-  const iso = inputTanggalSerah?.value || '';
-  if (btnGenerate)   btnGenerate.disabled   = !iso;
-  if (btnGenCombo)   btnGenCombo.disabled   = !iso;
-  if (btnGenCMOnly)  btnGenCMOnly.disabled  = !iso;
-
-  if (btnGenFilesOnly) {
-    const anyChecked = !!document.querySelector('#historiBody input.pick:checked');
-    btnGenFilesOnly.disabled = !iso || !anyChecked;
-  }
-}
-
-inputTanggalSerah?.addEventListener('change', () => {
+inputTanggalSerah?.addEventListener('change', ()=>{
   const iso = inputTanggalSerah.value || '';
-  document.querySelectorAll('.tgl-serah').forEach(td => {
+  document.querySelectorAll('.tgl-serah').forEach(td=>{
     td.dataset.iso = iso;
     td.textContent = iso ? formatTanggalSerahForPdf(iso) : '';
   });
-  updateButtonsState(); // <- cukup panggil helper
+  if (btnGenerate) btnGenerate.disabled = !iso;              // tombol lama
+  if (btnGenCombo) btnGenCombo.disabled = !iso;              // gabungan baru
+  if (btnGenCMOnly) btnGenCMOnly.disabled = !iso;            // CM only baru
 });
 
-tbody?.addEventListener('change', (e) => {
+tbody?.addEventListener('change', (e)=>{
   if (e.target.matches('input.pick')) {
     syncPickAllState();
-    updateButtonsState(); // <- cukup panggil helper
+    if (btnGenFilesOnly){
+      const iso = inputTanggalSerah?.value || '';
+      const anyChecked = !!document.querySelector('#historiBody input.pick:checked');
+      btnGenFilesOnly.disabled = !iso || (!anyChecked && !!pickAll);
+    }
   }
 });
 
+
 tbody?.addEventListener('click', async (e) => {
-  const btn = e.target.closest('.btn-del');
+  const btn = e.target.closest('.btn-del'); 
   if (!btn) return;
   if (!confirm('Hapus entri ini dari histori?')) return;
 
   const isoNow = inputTanggalSerah?.value || '';
-  if (isoNow) {
-    document.querySelectorAll('.tgl-serah').forEach(td => {
-      td.dataset.iso = isoNow;
-      td.textContent = formatTanggalSerahForPdf(isoNow);
-    });
-  }
+  if (isoNow) document.querySelectorAll('.tgl-serah').forEach(td=>{
+    td.dataset.iso = isoNow; td.textContent = formatTanggalSerahForPdf(isoNow);
+  });
 
   const tr = btn.closest('tr');
   const nameFromRow = tr?.dataset?.name || '';
@@ -960,25 +951,12 @@ tbody?.addEventListener('click', async (e) => {
   });
 
   renderTabel();
-  updateButtonsState(); // jaga-jaga kalau renderTabel belum manggil helper
-
   // Push mirror ke cloud (debounced)
   try { await window.FSTSync?.queuePush?.(); } catch {}
 });
 
-pickAll?.addEventListener('change', () => {
+pickAll?.addEventListener('change', ()=>{
   document.querySelectorAll('#historiBody input.pick').forEach(cb => cb.checked = pickAll.checked);
-  syncPickAllState();
-  updateButtonsState(); // master checkbox juga pengaruh tombol "PDF Terpilih"
-});
-
-// Auto-refresh saat tab kembali fokus (pull cloud + hydrate -> render)
-document.addEventListener('visibilitychange', async () => {
-  if (document.hidden) return;
-  try { await window.FSTSync?.pullCloudToLocal?.(); } catch {}
-  // renderTabel() dipanggil di dalam pullCloudToLocal override-mu;
-  // panggil helper lagi agar tombol pasti sinkron.
-  updateButtonsState();
 });
 
 // ========== TOMBOL LAMA: generate gabungan (semua) ==========
@@ -1027,7 +1005,6 @@ btnGenFilesOnly?.addEventListener('click', async ()=>{
 document.addEventListener('DOMContentLoaded', async ()=>{
   renderTabel();
   loadNama();
-  updateButtonsState();
   // Pull histori dari cloud ke lokal (merge) saat halaman dibuka
   try { await window.FSTSync?.pullCloudToLocal?.(); } catch {}
 });
