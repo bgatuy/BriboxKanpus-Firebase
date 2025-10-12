@@ -203,16 +203,6 @@ function renderTabel(){
   syncPickAllState();
 }
 
-  // sinkron state tombol berdasarkan tanggal & pilihan
-  const iso = inputTanggalSerah?.value || '';
-  if (btnGenerate)   btnGenerate.disabled   = !iso;
-  if (btnGenCombo)   btnGenCombo.disabled   = !iso;
-  if (btnGenCMOnly)  btnGenCMOnly.disabled  = !iso;
-  if (btnGenFilesOnly){
-    const anyChecked = !!document.querySelector('#historiBody input.pick:checked');
-    btnGenFilesOnly.disabled = !iso || !anyChecked;
-  }
-
 
 /********************
  *   INDEXEDDB      *
