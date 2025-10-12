@@ -201,6 +201,7 @@ function renderTabel(){
 
   // sinkron master checkbox setelah render
   syncPickAllState();
+  updateButtonsState();
 }
 
 
@@ -877,6 +878,23 @@ function manifestName(){ return `.bribox_histori__${getUidOrAnon()}.json`; }
   };
 })();
 
+/********************
+ *   STATE BUTTONS  *
+ ********************/
+function updateButtonsState() {
+  const iso = inputTanggalSerah?.value || '';
+
+  // aktif hanya kalau tanggal terisi
+  if (btnGenerate)   btnGenerate.disabled   = !iso;
+  if (btnGenCombo)   btnGenCombo.disabled   = !iso;
+  if (btnGenCMOnly)  btnGenCMOnly.disabled  = !iso;
+
+  // "PDF Terpilih" wajib: tanggal + minimal satu ceklist
+  if (btnGenFilesOnly) {
+    const anyChecked = !!document.querySelector('#historiBody input.pick:checked');
+    btnGenFilesOnly.disabled = !iso || !anyChecked;
+  }
+}
 
 /********************
  *   EVENTS         *
@@ -887,19 +905,13 @@ inputTanggalSerah?.addEventListener('change', ()=>{
     td.dataset.iso = iso;
     td.textContent = iso ? formatTanggalSerahForPdf(iso) : '';
   });
-  if (btnGenerate) btnGenerate.disabled = !iso;              // tombol lama
-  if (btnGenCombo) btnGenCombo.disabled = !iso;              // gabungan baru
-  if (btnGenCMOnly) btnGenCMOnly.disabled = !iso;            // CM only baru
+  updateButtonsState();
 });
 
 tbody?.addEventListener('change', (e)=>{
   if (e.target.matches('input.pick')) {
     syncPickAllState();
-    if (btnGenFilesOnly){
-      const iso = inputTanggalSerah?.value || '';
-      const anyChecked = !!document.querySelector('#historiBody input.pick:checked');
-      btnGenFilesOnly.disabled = !iso || (!anyChecked && !!pickAll);
-    }
+    updateButtonsState();
   }
 });
 
@@ -957,6 +969,7 @@ tbody?.addEventListener('click', async (e) => {
 
 pickAll?.addEventListener('change', ()=>{
   document.querySelectorAll('#historiBody input.pick').forEach(cb => cb.checked = pickAll.checked);
+  updateButtonsState();
 });
 
 // ========== TOMBOL LAMA: generate gabungan (semua) ==========
@@ -972,6 +985,7 @@ btnGenerate?.addEventListener('click', async ()=>{
 btnGenCombo?.addEventListener('click', async ()=>{
   const tanggalInput = inputTanggalSerah?.value || '';
   if(!tanggalInput){ alert('Isi Tanggal Serah Terima dulu.'); return; }
+  if (!(await ensureLocalBlobsReadyOrWarn())) return;
   try{ showSpinner(); await generateCombinedSelected(); }
   catch(err){ console.error(err); alert('Gagal membuat PDF gabungan.'); }
   finally{ hideSpinner(); }
@@ -996,7 +1010,8 @@ btnGenFilesOnly?.addEventListener('click', async ()=>{
     alert('Pilih minimal satu file dulu (ceklist di kolom paling kiri).');
     return;
   }
-
+  if (!(await ensureLocalBlobsReadyOrWarn())) return;
+  
   try{ showSpinner(); await generateOriginalsOnly(selected); }
   catch(err){ console.error(err); alert('Gagal menggabungkan PDF asli.'); }
   finally{ hideSpinner(); }
@@ -1007,6 +1022,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   loadNama();
   // Pull histori dari cloud ke lokal (merge) saat halaman dibuka
   try { await window.FSTSync?.pullCloudToLocal?.(); } catch {}
+  updateButtonsState();
 });
 
 // ===== Reset Histori (lokal + cloud) =====
@@ -1326,6 +1342,17 @@ try {
   finishHydrateBanner();
 }
 
+async function ensureLocalBlobsReadyOrWarn() {
+  try {
+    const a = await getAllPdfBuffersFromIndexedDB([]);
+    if (a && a.length) return true;
+    try { await hydrateMissingBlobsFromDrive?.(); } catch {}
+    const b = await getAllPdfBuffersFromIndexedDB([]);
+    if (b && b.length) return true;
+  } catch {}
+  alert('File PDF asli belum tersinkron dari Drive. Coba tunggu sebentar lalu klik lagi.');
+  return false;
+}
 
   // Hook: setelah render/pull cloud, coba hydrate diam-diam + progres
   document.addEventListener('DOMContentLoaded', async ()=>{
@@ -1337,9 +1364,15 @@ try {
     window.FSTSync.pullCloudToLocal = async function(){
       const r = await _pull.apply(this, arguments);
       try { await hydrateMissingBlobsFromDrive(); } catch {}
+      try { updateButtonsState(); } catch {}
       return r;
     };
   }
+  document.addEventListener('visibilitychange', async () => {
+  if (document.hidden) return;
+  try { await FSTSync?.pullCloudToLocal?.(); } catch {}
+  updateButtonsState();
+});
 })();
 
 /********************
