@@ -1319,12 +1319,10 @@ try {
 
       // 3b) Fallback akurat: cari via appProperties (sha256/contentHash)
       if (!fileId && my.hash) {
-        const q = [
-          `mimeType='application/pdf'`,
-          `trashed=false`,
-          `(appProperties has { key='sha256' and value='${my.hash}' }`,
-          ` or appProperties has { key='contentHash' and value='${my.hash}' })`
-        ].join(' and ');
+        const q =
+        `mimeType='application/pdf' and trashed=false and ` +
+        `(appProperties has { key='sha256' and value='${my.hash}' } ` +
+        `or appProperties has { key='contentHash' and value='${my.hash}' })`;
         const hits = await withTimeout(driveSearch(q), 8000);
         if (hits && hits[0]?.id) fileId = hits[0].id;
       }

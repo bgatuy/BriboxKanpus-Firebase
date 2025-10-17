@@ -502,12 +502,10 @@
 
     // 3) appProperties (global) — sha256 atau contentHash
     try {
-      const q = [
-        `mimeType='application/pdf'`,
-        `trashed=false`,
-        `(appProperties has { key='sha256' and value='${sha256}' }`,
-        ` or appProperties has { key='contentHash' and value='${sha256}' })`
-      ].join(' and ');
+      const q =
+      `mimeType='application/pdf' and trashed=false and ` +
+      `(appProperties has { key='sha256' and value='${sha256}' } ` +
+      `or appProperties has { key='contentHash' and value='${sha256}' })`;
       const hit = (await queryDrive(q, 'id,name,appProperties'))[0];
       if (hit?.id) return hit.id;
     } catch {}
