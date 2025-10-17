@@ -975,11 +975,13 @@ pickAll?.addEventListener('change', ()=>{
 // ========== TOMBOL LAMA: generate gabungan (semua) ==========
 btnGenerate?.addEventListener('click', async ()=>{
   const tanggalInput = inputTanggalSerah.value;
-  if(!tanggalInput){ alert('⚠️ Silakan isi tanggal serah terima terlebih dahulu.'); return; }
-  try{ showSpinner(); await generatePdfSerahTerima(); }
-  catch(err){ console.error(err); alert('Gagal generate PDF. Pastikan jsPDF, AutoTable, PDF-lib & PDF.js sudah dimuat.'); }
-  finally{ hideSpinner(); }
+  if (!tanggalInput) { alert('⚠️ Silakan isi tanggal serah terima terlebih dahulu.'); return; }
+  if (!(await window.ensureLocalBlobsReadyOrWarn())) return;   // ⬅️ penting
+  try { showSpinner(); await generatePdfSerahTerima(); }
+  catch (err) { console.error(err); alert('Gagal generate PDF. Pastikan jsPDF, AutoTable, PDF-lib & PDF.js sudah dimuat.'); }
+  finally { hideSpinner(); }
 });
+
 
 // ========== TOMBOL BARU (jika ada di HTML) ==========
 btnGenCombo?.addEventListener('click', async (e) => {
@@ -1312,6 +1314,18 @@ try {
       // 3) Fallback query langsung (hash.pdf) jika belum ketemu
       if (!fileId && my.hash) {
         const hits = await withTimeout(driveFindByHash(my.hash), 8000);
+        if (hits && hits[0]?.id) fileId = hits[0].id;
+      }
+
+      // 3b) Fallback akurat: cari via appProperties (sha256/contentHash)
+      if (!fileId && my.hash) {
+        const q = [
+          `mimeType='application/pdf'`,
+          `trashed=false`,
+          `(appProperties has { key='sha256' and value='${my.hash}' }`,
+          ` or appProperties has { key='contentHash' and value='${my.hash}' })`
+        ].join(' and ');
+        const hits = await withTimeout(driveSearch(q), 8000);
         if (hits && hits[0]?.id) fileId = hits[0].id;
       }
 
