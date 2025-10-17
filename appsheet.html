@@ -184,24 +184,30 @@
     function toggleSidebar(){ document.querySelector('.sidebar')?.classList.toggle('hidden'); }
   </script>
 
-  <!-- Namespacing per-akun (agar konsisten lintas halaman) -->
+    <!-- Namespacing per-akun (agar konsisten lintas halaman) -->
   <script src="user-scope.js" defer></script>
 
   <!-- Auth -->
   <script src="auth.js" defer></script>
-  <script defer>document.addEventListener('DOMContentLoaded',()=>{ try{ Auth.enforce(); }catch{} });</script>
+  <script defer>
+    document.addEventListener('DOMContentLoaded', () => {
+      try { Auth.enforce(); } catch {}
+    });
+  </script>
 
   <!-- Drive core (tetap ada; pakai token dari Trackmate jika sudah connect) -->
   <script src="drive-sync.js?v=pure-oauth-2" defer></script>
   <script src="drive-queue.js" defer></script>
 
-  <!-- Firebase init (tanpa popup di halaman ini) -->
-  <script type="module" src="firebase-init.js"></script>
-  <script type="module">
-    import { ensureFirebase } from './firebase-init.js';
-    await ensureFirebase();
-    // Inisialisasi queue; kalau token dari Trackmate sudah ada, antrean langsung jalan
-    document.addEventListener('DOMContentLoaded', () => {
+  <!-- Drive-only init (tanpa Firebase) -->
+  <script defer>
+    document.addEventListener('DOMContentLoaded', async () => {
+      try {
+        // Lanjutkan sesi jika token sudah ada (aman jika belum)
+        await window.DriveSync?.tryResume?.().catch(() => {});
+      } catch {}
+
+      // Start antrean upload; jika token sudah ada, flush akan jalan otomatis
       try { window.DriveQueue?.init?.(); } catch {}
     });
   </script>
