@@ -1175,21 +1175,63 @@ try {
     try { await (DriveSync?.tryResume?.() || Promise.resolve(false)); } catch {}
     return (DriveSync?.isLogged?.() || false);
   }
-  async function saveBlobToIndexedDB(hash, name, blob, meta=null){
+  async function saveBlobToIndexedDB(hash, name, blob, meta = null) {
+  // Kalau ga ada hash, jangan pakai pdfBlobs (keyPath: contentHash). Fallback ke 'pdfs'.
+  if (!hash) {
     const db = await openDb();
     return new Promise((resolve) => {
-      if (!db.objectStoreNames.contains(STORE_BLOBS)) {
-        // kalau store belum ada (mustinya sudah ada dari onupgradeneeded)
-        try { const tx0 = db.transaction([], 'readonly'); tx0.oncomplete = ()=>{}; } catch {}
-      }
-      const tx = db.transaction([STORE_BLOBS], 'readwrite');
-      const store = tx.objectStore(STORE_BLOBS);
-      const rec = { contentHash: hash || null, name: name || '(tanpa-nama)', blob, type: 'application/pdf', size: blob.size, meta, savedAt: Date.now() };
-      store.put(rec);
-      tx.oncomplete = () => resolve(true);
-      tx.onerror = () => resolve(false);
+      try {
+        const tx = db.transaction(['pdfs'], 'readwrite');
+        tx.objectStore('pdfs').put({
+          name: name || '(tanpa-nama)',
+          data: blob,
+          meta,
+          contentHash: null
+        });
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      } catch (e) { console.warn('[IDB] fallback->pdfs failed:', e); resolve(false); }
     });
   }
+
+  const db = await openDb();
+
+  // Kalau store baru belum ada → simpan ke 'pdfs' supaya nggak meledak
+  if (!db.objectStoreNames.contains('pdfBlobs')) {
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(['pdfs'], 'readwrite');
+        tx.objectStore('pdfs').put({
+          name: `${hash}.pdf`,
+          data: blob,
+          meta,
+          contentHash: hash
+        });
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      } catch (e) { console.warn('[IDB] pdfBlobs missing & pdfs fallback failed:', e); resolve(false); }
+    });
+  }
+
+  // Normal path: simpan ke 'pdfBlobs'
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(['pdfBlobs'], 'readwrite');
+      tx.objectStore('pdfBlobs').put({
+        contentHash: hash,
+        name: name || '(tanpa-nama)',
+        blob,
+        type: 'application/pdf',
+        size: blob.size,
+        meta,
+        savedAt: Date.now()
+      });
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+    } catch (e) { console.warn('[IDB] write pdfBlobs failed:', e); resolve(false); }
+  });
+}
+
   async function haveBlobMap(){
     const all = await getAllPdfBuffersFromIndexedDB([]);
     const m = { byHash:new Set(), byName:new Set() };
@@ -1353,11 +1395,18 @@ try {
 
   // ⚠️ FIX: panggil worker(), bukan pass referensi fungsi
   const workers = Array.from(
-    { length: Math.min(CONCURRENCY, targets.length) },
-    () => worker()
-  );
-  await Promise.all(workers);
-  finishHydrateBanner();
+  { length: Math.min(CONCURRENCY, targets.length) },
+  () => worker()
+);
+
+// hard-deadline agar banner pasti selesai
+const DEADLINE_MS = 20000;
+await Promise.race([
+  Promise.all(workers),
+  new Promise(res => setTimeout(res, DEADLINE_MS))
+]);
+
+finishHydrateBanner();
 }
   window.ensureLocalBlobsReadyOrWarn = async function ensureLocalBlobsReadyOrWarn() {
   try {
