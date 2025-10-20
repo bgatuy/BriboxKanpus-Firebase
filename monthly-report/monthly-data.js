@@ -23,6 +23,43 @@
     writeJSON(k, obj){ this.setItem(k, JSON.stringify(obj ?? [])); }
   };
 
+  // ===== SYNC MUTEX & IMPROVED CLOUD SYNC =====
+  let _syncMutex = null;
+  let _lastSyncTime = 0;
+  const SYNC_COOLDOWN = 2000; // 2 detik cooldown antara sync
+
+  async function synchronizedCloudSync() {
+    const now = Date.now();
+    
+    // Cooldown check - hindari sync terlalu sering
+    if (now - _lastSyncTime < SYNC_COOLDOWN) {
+      console.log('[Sync] Dalam cooldown, skip sync');
+      return;
+    }
+
+    // Mutex check - hindari race condition
+    const startTime = Date.now();
+    while (_syncMutex && (Date.now() - startTime) < 10000) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    if (_syncMutex) {
+      console.warn('[Sync] Mutex timeout, proceeding anyway');
+    }
+    
+    _syncMutex = true;
+    try {
+      console.log('[Sync] Starting synchronized cloud sync...');
+      _lastSyncTime = now;
+      await doCloudPull();
+      console.log('[Sync] Cloud sync completed');
+    } catch (error) {
+      console.error('[Sync] Sync failed:', error);
+    } finally {
+      _syncMutex = null;
+    }
+  }
+
   /* ========= SIDEBAR ========= */
   const sidebar   = document.querySelector('.sidebar');
   const overlay   = document.getElementById('sidebarOverlay') || document.querySelector('.sidebar-overlay');
@@ -105,6 +142,41 @@
         await window.DriveSync?.putJson?.(monthlyCloudFile(), { data });
       } catch {}
     }, 700);
+  }
+
+  // ===== IMPROVED CLOUD PULL =====
+  async function doCloudPull() {
+    try {
+      console.log('[Monthly] Starting cloud pull...');
+      
+      if (!window.MonthlySync?.pull) {
+        console.warn('[Monthly] MonthlySync.pull tidak tersedia');
+        return;
+      }
+
+      // Timeout protection
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Pull timeout setelah 15 detik')), 15000)
+      );
+
+      await Promise.race([
+        window.MonthlySync.pull(
+          monthlyGetLocal, 
+          monthlySetLocal, 
+          () => {
+            console.log('[Monthly] Pull completed, applying filters...');
+            applyFilters();
+          }
+        ),
+        timeoutPromise
+      ]);
+      
+    } catch (error) {
+      console.error('[Monthly] Pull error:', error);
+      // Fallback ke data lokal
+      showToast('Sync gagal, menggunakan data lokal');
+      applyFilters();
+    }
   }
 
   // ===== pick month (URL -> latest in storage -> now)
@@ -252,7 +324,7 @@
   }
 
   /* ============== Helpers FULL CALENDAR untuk EXPORT ============== */
-  const HARI_ID = ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"];
+  const HARI_ID = ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabatu"];
   const BULAN_ID = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
   const daysInMonth = (y, m) => new Date(y, m, 0).getDate(); // m=1..12
   const pad2 = (n)=> String(n).padStart(2,'0');
@@ -547,38 +619,40 @@
   $("btnExportXlsx")?.addEventListener('click', exportXLSX);
   $("btnReset")?.addEventListener('click', resetMonth);
 
+  // ===== IMPROVED EVENT HANDLERS =====
   document.addEventListener('DOMContentLoaded', async () => {
-    applyFilters?.();
-
-    // Pull → merge → render
-    const doPull = async () => {
-      if (window.MonthlySync?.pull) {
-        await window.MonthlySync.pull(monthlyGetLocal, monthlySetLocal, () => applyFilters());
-        return;
-      }
-      try {
-        const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
-        if (!ok && !window.DriveSync?.isLogged?.()) return;
-        const cloudObj = await window.DriveSync?.getJson?.(monthlyCloudFile());
-        const incoming =
-            Array.isArray(cloudObj?.data) ? cloudObj.data
-          : Array.isArray(cloudObj)       ? cloudObj
-          : [];
-          await monthlySetLocal(incoming); // REPLACE lokal dengan cloud
-          applyFilters?.();
-        
-      } catch (e) {
-        console.warn('[Monthly] pull gagal:', e);
-      }
-    };
-    await doPull();
+    // Render data lokal dulu untuk responsiveness
+    applyFilters();
+    
+    // Sync dengan cloud (dengan mutex)
+    setTimeout(async () => {
+      await synchronizedCloudSync();
+    }, 500);
   });
 
-  // Jika tab lain mengubah storage -> refresh tabel
-  window.addEventListener('storage', (e) => {
+  // ===== IMPROVED STORAGE EVENT =====
+  window.addEventListener('storage', async (e) => {
     if (!e?.key) return;
-    const k = e.key.endsWith('::'+getUidOrAnon()) ? e.key.split('::')[0] : e.key;
-    if (k === STORAGE_KEY || k === LEGACY_KEY) applyFilters();
+    
+    const key = e.key.includes('::') ? e.key.split('::')[0] : e.key;
+    
+    if (key === STORAGE_KEY || key === LEGACY_KEY) {
+      console.log('[Monthly] Storage changed, syncing...');
+      // Delay kecil untuk hindari race condition
+      setTimeout(async () => {
+        await synchronizedCloudSync();
+      }, 300);
+    }
+  });
+
+  // ===== IMPROVED VISIBILITY CHANGE =====
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      console.log('[Monthly] Tab visible, checking for updates...');
+      setTimeout(async () => {
+        await synchronizedCloudSync();
+      }, 1000);
+    }
   });
 
   // ===== merge helper (dipakai di pull & migrasi)

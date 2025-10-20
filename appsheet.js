@@ -390,6 +390,100 @@ pdfInput?.addEventListener("change", async () => {
   generateLaporan();
 });
 
+// ===== CLOUD SYNC (AppSheet) =====
+(function(){
+  const MANIFEST_BASENAME = '.bribox_histori';
+  function manifestName() { return `${MANIFEST_BASENAME}__${getUidOrAnon()}.json`; }
+
+  async function driveLoadHistoriManifest() {
+    try {
+      if (window.DriveSync?.getJson) {
+        const obj = await DriveSync.getJson(manifestName());
+        return obj?.data ?? null;
+      }
+    } catch (e) {
+      console.warn('[AppSheet] DriveSync getJson fail:', e);
+    }
+    return null;
+  }
+
+  async function driveSaveHistoriManifest(arr) {
+    const json = JSON.stringify(Array.isArray(arr) ? arr : [], null, 0);
+    if (window.DriveSync?.putJson) {
+      try {
+        await DriveSync.putJson(manifestName(), JSON.parse(json));
+        return true;
+      } catch (e) {
+        console.warn('[AppSheet] DriveSync putJson fail:', e);
+      }
+    }
+    return false;
+  }
+
+  // Pull cloud to local
+  async function pullCloudToLocal() {
+    try {
+      const cloud = await driveLoadHistoriManifest();
+      if (Array.isArray(cloud)) {
+        const local = readHistori();
+        // Merge: prefer cloud entries by contentHash
+        const merged = mergeHistori(local, cloud);
+        writeHistoriLocal(merged);
+        scheduleSaveManifest(merged);
+        return true;
+      }
+    } catch (e) {
+      console.warn('[AppSheet] Pull cloud failed:', e);
+    }
+    return false;
+  }
+
+  function mergeHistori(local, cloud) {
+    const map = new Map();
+    
+    // Add all local entries
+    local.forEach(item => {
+      if (item.contentHash) {
+        map.set(item.contentHash, item);
+      }
+    });
+    
+    // Add/update with cloud entries (prefer newer)
+    cloud.forEach(item => {
+      if (item.contentHash) {
+        const existing = map.get(item.contentHash);
+        if (!existing || (item.uploadedAt > existing.uploadedAt)) {
+          map.set(item.contentHash, item);
+        }
+      }
+    });
+    
+    return Array.from(map.values()).sort((a, b) => 
+      new Date(b.uploadedAt) - new Date(a.uploadedAt)
+    );
+  }
+
+  // Expose to global
+  window.AppSheetSync = {
+    pullCloudToLocal,
+    driveSaveHistoriManifest
+  };
+
+  // Auto-pull on page load if Drive connected
+  document.addEventListener('DOMContentLoaded', async () => {
+    setTimeout(async () => {
+      try {
+        const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+        if (ok || window.DriveSync?.isLogged?.()) {
+          await pullCloudToLocal();
+        }
+      } catch (e) {
+        console.warn('[AppSheet] Auto-pull failed:', e);
+      }
+    }, 1000);
+  });
+})();
+
 // ---------- COPY & SAVE ----------
 copyBtn?.addEventListener("click", async () => {
   // 1) Copy text

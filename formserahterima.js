@@ -204,10 +204,9 @@ function renderTabel(){
   updateButtonsState();
 }
 
-
 /********************
  *   INDEXEDDB      *
- ********************/
+ ********************
 function openDb(){
   return new Promise((res, rej) => {
     const req = indexedDB.open(currentDbName());
@@ -223,7 +222,8 @@ function openDb(){
     req.onsuccess = (e) => res(e.target.result);
     req.onerror   = () => rej('Gagal buka DB');
   });
-}
+}*/
+
 function clearIndexedDB(){
   return new Promise((resolve,reject)=>{
     const request=indexedDB.deleteDatabase(currentDbName());
@@ -232,6 +232,7 @@ function clearIndexedDB(){
     request.onblocked=()=>reject("Hapus database diblokir oleh tab lain");
   });
 }
+
 async function getAllPdfBuffersFromIndexedDB(preferredOrderNames = []) {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(currentDbName());
@@ -359,6 +360,19 @@ async function generatePdfSerahTerima(){
   ensureLibsOrThrow({ requireJsPDF: true, requirePDFLib: true, requirePdfjs: false });
   const histori=getPdfHistori();
   if(!histori.length){ alert("Histori kosong. Tidak bisa generate PDF."); return; }
+
+  // PERBAIKAN: Validasi tambahan
+  const tanggalInput = inputTanggalSerah.value;
+  if (!tanggalInput) { 
+    alert('⚠️ Silakan isi tanggal serah terima terlebih dahulu.'); 
+    return; 
+  }
+  
+  // PERBAIKAN: Better blob readiness check
+  if (!(await ensureLocalBlobsReadyWithTimeout())) {
+    showToast('File PDF belum siap, coba lagi dalam beberapa detik', 4000, 'warn');
+    return;
+  }
 
   // Ambil pilihan nama
   const namaTeknisi = (selNama?.value || '').trim();
@@ -609,6 +623,19 @@ async function downloadBlob(blob, filename){
 /* Gabungan (FST + PDF TERPILIH) – tidak mengubah fungsi lama */
 async function generateCombinedSelected(){
   ensureLibsOrThrow({ requireJsPDF: true, requirePDFLib: true, requirePdfjs: false });
+  
+  // PERBAIKAN: Validasi dan readiness check
+  const tanggalInput = inputTanggalSerah?.value || '';
+  if (!tanggalInput) { 
+    alert('Isi Tanggal Serah Terima dulu.'); 
+    return; 
+  }
+  
+  if (!(await ensureLocalBlobsReadyWithTimeout())) {
+    showToast('File PDF belum siap, coba lagi dalam beberapa detik', 4000, 'warn');
+    return;
+  }
+  
   const cmBlob = await buildFormCMBlob();
   const selected = getSelectedFromTable();
   const originals = await fetchPdfBuffersBySelection(selected);
@@ -669,6 +696,13 @@ async function generateCombinedSelected(){
 
 /* FORM CM saja */
 async function generateCMOnly(){
+  // PERBAIKAN: Validasi
+  const tanggalInput = inputTanggalSerah?.value || '';
+  if (!tanggalInput) { 
+    alert('Isi Tanggal Serah Terima dulu.'); 
+    return; 
+  }
+  
   const blob = await buildFormCMBlob();
   await downloadBlob(blob, 'Form Tanda Terima CM.pdf');
 
@@ -683,6 +717,18 @@ async function generateCMOnly(){
 /* PDF asli terpilih saja — SEKARANG ikut stamping nama di kolom TTD */
 async function generateOriginalsOnly(selected){
   ensureLibsOrThrow({ requireJsPDF: false, requirePDFLib: true, requirePdfjs: false });
+  
+  // PERBAIKAN: Validasi
+  if (!selected.length){ 
+    alert('Tidak ada file terpilih / ditemukan.'); 
+    return; 
+  }
+  
+  if (!(await ensureLocalBlobsReadyWithTimeout())) {
+    showToast('File PDF belum siap, coba lagi dalam beberapa detik', 4000, 'warn');
+    return;
+  }
+
   const originals = await fetchPdfBuffersBySelection(selected);
   if (!originals.length){ alert('Tidak ada file terpilih / ditemukan.'); return; }
 
@@ -755,6 +801,23 @@ async function generateOriginalsOnly(selected){
   } catch {}
 }
 
+// PERBAIKAN: Tambahkan function timeout helper
+async function ensureLocalBlobsReadyWithTimeout() {
+  const timeoutMs = 15000;
+  try {
+    const ready = await Promise.race([
+      window.ensureLocalBlobsReadyOrWarn(),
+      new Promise((resolve) => setTimeout(() => {
+        console.log('[FST] Blob readiness check timeout');
+        resolve(false);
+      }, timeoutMs))
+    ]);
+    return ready !== false;
+  } catch (e) {
+    console.warn('[FST] Blob readiness check failed:', e);
+    return false;
+  }
+}
 
 /********************
  *   CLOUD MIRROR   *
@@ -825,30 +888,55 @@ async function generateOriginalsOnly(selected){
 }
 function manifestName(){ return `.bribox_histori__${getUidOrAnon()}.json`; }
 
-
+  // PERBAIKAN: FSTSync dengan timeout protection
   window.FSTSync = {
     async pullCloudToLocal(){
   try{
+    // PERBAIKAN: Tambahkan timeout untuk prevent hanging
+    const timeoutPromise = new Promise((resolve) => 
+      setTimeout(() => {
+        console.log('[FST] Pull timeout');
+        resolve(null);
+      }, 20000)
+    );
+
     const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
     if (!ok && !window.DriveSync?.isLogged?.()) return;
 
     // A) Coba manifest per-akun (Trackmate) via getJson
     let manifestArr = null;
     try {
-      const obj = await window.DriveSync?.getJson?.(manifestName());
+      const manifestPromise = window.DriveSync?.getJson?.(manifestName());
+      const obj = await Promise.race([manifestPromise, timeoutPromise]);
       const arr = obj?.data;
         if (Array.isArray(arr)) manifestArr = arr;
-        } catch {}
+        } catch (e) {
+          console.warn('[FST] Manifest fetch failed:', e);
+        }
 
     if (manifestArr) {
       // langsung pakai data manifest Trackmate
       setPdfHistori(manifestArr);
       renderTabel();
+      
+      // PERBAIKAN: Delay hydrate untuk hindari race condition
+      setTimeout(() => {
+        try { 
+          hydrateMissingBlobsFromDrive().catch(e => 
+            console.warn('[FST] Hydrate failed:', e)
+          ); 
+        } catch {}
+      }, 1000);
+      
       return;
     }
 
     // B) Fallback: file lama FST-History.json (pakai rev)
-    const cloudObj = await window.DriveSync.getJson('FST-History.json');
+    const cloudObj = await Promise.race([
+      window.DriveSync.getJson('FST-History.json'),
+      timeoutPromise
+    ]);
+    
   if (!cloudObj) return;
   const cloud = cloudObj.data || {};
   const cloudRev = Number(cloud.rev || 0);
@@ -861,6 +949,16 @@ function manifestName(){ return `.bribox_histori__${getUidOrAnon()}.json`; }
       if (window.AccountStore?.setRev) window.AccountStore.setRev(cloudRev);
       else localStorage.setItem('pdfHistoriRev', String(cloudRev));
       renderTabel();
+      
+      // PERBAIKAN: Delay hydrate
+      setTimeout(() => {
+        try { 
+          hydrateMissingBlobsFromDrive().catch(e => 
+            console.warn('[FST] Hydrate failed:', e)
+          ); 
+        } catch {}
+      }, 1000);
+      
     } else if (Array.isArray(cloud.data)) {
       // local lebih baru → heal cloud lama
       try {
@@ -870,7 +968,11 @@ function manifestName(){ return `.bribox_histori__${getUidOrAnon()}.json`; }
         await window.DriveSync.putJson('FST-History.json', { rev, data });
       } catch {}
     }
-  }catch{}
+  }catch(e){
+    console.warn('[FSTSync] Pull failed:', e);
+    // PERBAIKAN: Tetap render tabel dengan data lokal
+    renderTabel();
+  }
 },
 
     async queuePush(){ await pushCloudDebounced(); },
@@ -978,7 +1080,10 @@ btnGenerate?.addEventListener('click', async ()=>{
   if (!tanggalInput) { alert('⚠️ Silakan isi tanggal serah terima terlebih dahulu.'); return; }
   if (!(await window.ensureLocalBlobsReadyOrWarn())) return;   // ⬅️ penting
   try { showSpinner(); await generatePdfSerahTerima(); }
-  catch (err) { console.error(err); alert('Gagal generate PDF. Pastikan jsPDF, AutoTable, PDF-lib & PDF.js sudah dimuat.'); }
+  catch (err) { 
+    console.error('[FST] Generate error:', err); 
+    showToast('Gagal generate PDF. Cek console.', 4000, 'warn');
+  }
   finally { hideSpinner(); }
 });
 
@@ -988,9 +1093,15 @@ btnGenCombo?.addEventListener('click', async (e) => {
   e.preventDefault();
   const tanggalInput = inputTanggalSerah?.value || '';
   if (!tanggalInput) { alert('Isi Tanggal Serah Terima dulu.'); return; }
-  if (!(await window.ensureLocalBlobsReadyOrWarn())) return;
+  if (!(await ensureLocalBlobsReadyWithTimeout())) {
+    showToast('File PDF belum siap, coba lagi dalam beberapa detik', 4000, 'warn');
+    return;
+  }
   try { showSpinner(); await generateCombinedSelected(); }
-  catch (err) { console.error(err); alert('Gagal membuat PDF gabungan.'); }
+  catch (err) { 
+    console.error('[FST] Generate gabungan error:', err); 
+    showToast('Gagal membuat PDF gabungan.', 4000, 'warn');
+  }
   finally { hideSpinner(); }
 });
 
@@ -998,10 +1109,19 @@ btnGenCMOnly?.addEventListener('click', async (e) => {
   e.preventDefault();
   const tanggalInput = inputTanggalSerah?.value || '';
   if (!tanggalInput) { alert('Isi Tanggal Serah Terima dulu.'); return; }
-  try { showSpinner(); const b = await buildFormCMBlob(); await downloadBlob(b,'Form Tanda Terima CM.pdf');
-        try { if (typeof window.saveGeneratedPdfSilent === 'function') await window.saveGeneratedPdfSilent(b,'Form Tanda Terima CM'); } catch {}
-      }
-  catch (err) { console.error(err); alert('Gagal membuat FORM CM.'); }
+  try { 
+    showSpinner(); 
+    const b = await buildFormCMBlob(); 
+    await downloadBlob(b,'Form Tanda Terima CM.pdf');
+    try { 
+      if (typeof window.saveGeneratedPdfSilent === 'function') 
+        await window.saveGeneratedPdfSilent(b,'Form Tanda Terima CM'); 
+    } catch {}
+  }
+  catch (err) { 
+    console.error('[FST] Generate CM error:', err); 
+    showToast('Gagal membuat FORM CM.', 4000, 'warn');
+  }
   finally { hideSpinner(); }
 });
 
@@ -1012,10 +1132,16 @@ btnGenFilesOnly?.addEventListener('click', async (e) => {
     .map(tr => ({ hash: tr.getAttribute('data-hash') || '', name: tr.getAttribute('data-name') || '' }));
 
   if (selected.length === 0) { alert('Pilih minimal satu file dulu (ceklist di kolom paling kiri).'); return; }
-  if (!(await window.ensureLocalBlobsReadyOrWarn())) return;
+  if (!(await ensureLocalBlobsReadyWithTimeout())) {
+    showToast('File PDF belum siap, coba lagi dalam beberapa detik', 4000, 'warn');
+    return;
+  }
 
   try { showSpinner(); await generateOriginalsOnly(selected); }
-  catch (err) { console.error(err); alert('Gagal menggabungkan PDF asli.'); }
+  catch (err) { 
+    console.error('[FST] Generate PDF error:', err); 
+    showToast('Gagal menggabungkan PDF asli.', 4000, 'warn');
+  }
   finally { hideSpinner(); }
 });
 
@@ -1033,49 +1159,34 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   updateButtonsState();
 });
 
-// ===== Reset Histori (lokal + cloud) =====
+// ===== IMPROVED: Reset Histori (lokal + cloud) =====
 btnReset?.addEventListener('click', async () => {
   if (!confirm('Yakin reset semua histori (pdfHistori + IndexedDB)?')) return;
 
-  // 1) kosongkan histori lokal (pakai helper supaya respect namespace)
-  setPdfHistori([]);
-
-  // 2) bersihkan DB lokal
-  try { await clearIndexedDB(); } catch {}
-
-  // 3) bersihkan pilihan nama TTD
-  try { localStorage.removeItem(KEY_NAMA || 'serah_ttd_nama'); } catch {}
-  if (selNama) { selNama.selectedIndex = 0; selNama.value = ''; }
-
-  // 4) bersihkan katalog per-akun (mapping sha256 -> fileId)
+  showSpinner();
   try {
-    const uid = (window.Auth?.getUid?.() || 'anon');
-    localStorage.removeItem(`PdfCatalog__${uid}`);
-  } catch {}
-
-  // 5) push kosong ke cloud (dua jalur: manifest per-akun & FST-History.json)
-try {
-  const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
-  if (ok || window.DriveSync?.isLogged?.()) {
-    const uid = (window.DriveSync?.getUser?.()?.uid) ||
-                (window.Auth?.user?.uid) ||
-                (window.Auth?.currentUser?.()?.uid) || 'anon';
-    const manifest = `.bribox_histori__${uid}.json`;
-    const revNow = Date.now();
-
-    await window.DriveSync?.putJson?.(manifest, []); 
-    await window.DriveSync?.putJson?.('FST-History.json', { rev: revNow, data: [] });
-
-    // sinkronkan rev lokal
-    const KEY_REV = (window.AccountNS?.nsKey ? window.AccountNS.nsKey('pdfHistoriRev') : 'pdfHistoriRev');
-    localStorage.setItem(KEY_REV, String(revNow));
+    // PERBAIKAN: Sequential operations dengan error handling
+    setPdfHistori([]);
+    await clearIndexedDB().catch(e => console.warn('IDB clear failed:', e));
+    
+    // PERBAIKAN: Delay sebelum cloud push
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+    if (ok || window.DriveSync?.isLogged?.()) {
+      await window.DriveSync?.putJson?.(manifestName(), []).catch(e => 
+        console.warn('Cloud clear failed:', e)
+      );
+    }
+    
+    showToast('Histori berhasil direset', 3000);
+  } catch (e) {
+    console.error('[FST] Reset failed:', e);
+    showToast('Reset sebagian berhasil, cloud gagal', 4000, 'warn');
+  } finally {
+    hideSpinner();
+    renderTabel();
   }
-} catch (e) { console.warn('push reset cloud gagal:', e); }
-
-
-  // 6) render ulang & tutup banner hydrator
-  renderTabel();
-  try { document.getElementById('hydrateBanner')?.remove(); } catch {}
 });
 
 /* ===========================
@@ -1171,10 +1282,14 @@ try {
     } catch {}
     return null;
   }
+  
   async function ensureDriveReady(){
-    try { await (DriveSync?.tryResume?.() || Promise.resolve(false)); } catch {}
+    try { 
+      await (DriveSync?.tryResume?.() || Promise.resolve(false)); 
+    } catch {}
     return (DriveSync?.isLogged?.() || false);
   }
+  
   async function saveBlobToIndexedDB(hash, name, blob, meta = null) {
   // Kalau ga ada hash, jangan pakai pdfBlobs (keyPath: contentHash). Fallback ke 'pdfs'.
   if (!hash) {
@@ -1290,124 +1405,173 @@ async function downloadViaDriveSyncOrFetch(fileId){
   return await driveDownloadBlob(fileId);
 }
 
-  async function hydrateMissingBlobsFromDrive(){
+  // PERBAIKAN: hydrateMissingBlobsFromDrive dengan timeout dan better error handling
+  async function hydrateMissingBlobsFromDrive() {
   const list = getPdfHistori();
-  // coba pakai katalog per-akun dulu → langsung tau fileId
-let catMap = {};
-try {
-  const uid = (window.Auth?.getUid?.() || 'anon');
-  catMap = JSON.parse(localStorage.getItem(`PdfCatalog__${uid}`) || '{}'); // { sha256: {fileId,...} }
-} catch {}
+  if (!list.length) {
+    const banner = document.getElementById('hydrateBanner');
+    if (banner) banner.remove();
+    return;
+  }
 
-  if (!Array.isArray(list) || !list.length) return;
-
-  // ⛔ kalau Drive belum siap, jangan tampilkan progres yang menyesatkan
+  // PERBAIKAN: Better Drive readiness check dengan timeout
+  let driveReady = false;
   try {
-    const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
-    if (!ok && !window.DriveSync?.isLogged?.()) {
-      // tidak login → jangan tampilkan banner progres
-      const banner = document.getElementById('hydrateBanner');
-      if (banner) banner.remove();
-      return;
-    }
-  } catch {}
+    driveReady = await new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        console.log('[FST] Drive readiness check timeout');
+        resolve(false);
+      }, 10000);
+      
+      (async () => {
+        try {
+          const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
+          clearTimeout(timeout);
+          resolve(ok || window.DriveSync?.isLogged?.() || false);
+        } catch (e) {
+          clearTimeout(timeout);
+          resolve(false);
+        }
+      })();
+    });
+  } catch {
+    driveReady = false;
+  }
+
+  if (!driveReady) {
+    const banner = document.getElementById('hydrateBanner');
+    if (banner) banner.remove();
+    return;
+  }
 
   const have = await haveBlobMap();
   const targets = [];
+  
+  // PERBAIKAN: Prioritize by contentHash first
   for (const it of list){
     const hash = it.contentHash || it.fileHash || null;
     const name = it.fileName || null;
     if (hash ? have.byHash.has(hash) : (name && have.byName.has(name))) continue;
-    targets.push({ hash, name });
+    targets.push({ hash, name, item: it });
   }
-  if (!targets.length) return;
+  
+  if (!targets.length) {
+    finishHydrateBanner();
+    return;
+  }
 
   updateHydrateBanner(0, targets.length);
 
-  const CONCURRENCY = 3;
+  const CONCURRENCY = 2; // Reduce concurrency for stability
   let idx = 0, done = 0;
 
-  async function withTimeout(p, ms){
-    return await Promise.race([ p, new Promise(res => setTimeout(()=>res(null), ms||15000)) ]);
-  }
+  // PERBAIKAN: Enhanced download function with multiple fallbacks
+  async function downloadWorker() {
+    while (idx < targets.length) {
+      const target = targets[idx++];
+      let success = false;
 
-  async function worker(){
-  while (idx < targets.length){
-    const my = targets[idx++];
+      try {
+        // Method 1: Try DriveSync.fetchPdfBlob if fileId is known
+        let fileId = null;
+        
+        // Check local catalog first
+        const uid = getUidOrAnon();
+        const catKey = `PdfCatalog__${uid}`;
+        const catMap = JSON.parse(localStorage.getItem(catKey) || '{}');
+        
+        if (target.hash && catMap[target.hash]?.fileId) {
+          fileId = catMap[target.hash].fileId;
+        }
+        
+        // Method 2: Try getFileIdByHash API
+        if (!fileId && target.hash && typeof window.DriveSync?.getFileIdByHash === 'function') {
+          fileId = await window.DriveSync.getFileIdByHash(target.hash).catch(() => null);
+        }
 
-    try{
-      // 1) Katalog per-akun (paling cepat)
-      if (my.hash && catMap[my.hash]?.fileId) {
-        const blob = await withTimeout(downloadViaDriveSyncOrFetch(catMap[my.hash].fileId), 15000);
-        if (blob){
-          await saveBlobToIndexedDB(my.hash, `${my.hash}.pdf`, blob, null);
-          have.byHash.add(my.hash);
-          if (my.name) have.byName.add(my.name);
-          continue;
+        // Method 3: Search by hash in pdfs folder
+        if (!fileId && target.hash) {
+          try {
+            const folderId = await DriveSync.ensureSub('pdfs');
+            const q = `'${folderId}' in parents and trashed=false and name='${target.hash}.pdf'`;
+            const files = await driveSearch(q);
+            if (files[0]?.id) fileId = files[0].id;
+          } catch (e) {
+            console.warn('[FST] Hash search failed:', e);
+          }
+        }
+
+        // Method 4: Search by original name
+        if (!fileId && target.name) {
+          try {
+            const folderId = await DriveSync.ensureSub('pdfs');
+            const q = `'${folderId}' in parents and trashed=false and name='${target.name.replace(/'/g, "\\'")}'`;
+            const files = await driveSearch(q);
+            if (files[0]?.id) fileId = files[0].id;
+          } catch (e) {
+            console.warn('[FST] Name search failed:', e);
+          }
+        }
+
+        // Method 5: Global search by appProperties
+        if (!fileId && target.hash) {
+          try {
+            const q = `trashed=false and mimeType='application/pdf' and (appProperties has { key='contentHash' and value='${target.hash}' } or appProperties has { key='sha256' and value='${target.hash}' })`;
+            const files = await driveSearch(q);
+            if (files[0]?.id) fileId = files[0].id;
+          } catch (e) {
+            console.warn('[FST] Global search failed:', e);
+          }
+        }
+
+        if (fileId) {
+          const blob = await downloadViaDriveSyncOrFetch(fileId);
+          if (blob) {
+            // Verify this is the correct file by checking hash
+            const downloadedHash = await sha256Hex(await blob.arrayBuffer());
+            if (!target.hash || downloadedHash === target.hash) {
+              await saveBlobToIndexedDB(target.hash, target.name || `${target.hash}.pdf`, blob, null);
+              success = true;
+              
+              // Update local catalog
+              if (target.hash) {
+                catMap[target.hash] = { fileId, name: target.name || `${target.hash}.pdf`, at: Date.now() };
+                localStorage.setItem(catKey, JSON.stringify(catMap));
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`[FST] Hydrate failed for ${target.hash || target.name}:`, e);
+      } finally {
+        done += 1;
+        updateHydrateBanner(done, targets.length);
+        
+        if (!success) {
+          console.warn(`[FST] Failed to hydrate: ${target.hash || target.name}`);
         }
       }
-
-      // 2) Idempoten API (hash -> fileId) kalau tersedia
-      let fileId = null;
-      if (my.hash && typeof window.DriveSync?.getFileIdByHash === 'function') {
-        fileId = await withTimeout(window.DriveSync.getFileIdByHash(my.hash), 8000);
-      }
-
-      // 3) Fallback query langsung (hash.pdf) jika belum ketemu
-      if (!fileId && my.hash) {
-        const hits = await withTimeout(driveFindByHash(my.hash), 8000);
-        if (hits && hits[0]?.id) fileId = hits[0].id;
-      }
-
-      // 3b) Fallback akurat: cari via appProperties (sha256/contentHash)
-      if (!fileId && my.hash) {
-        const q =
-        `mimeType='application/pdf' and trashed=false and ` +
-        `(appProperties has { key='sha256' and value='${my.hash}' } ` +
-        `or appProperties has { key='contentHash' and value='${my.hash}' })`;
-        const hits = await withTimeout(driveSearch(q), 8000);
-        if (hits && hits[0]?.id) fileId = hits[0].id;
-      }
-
-      // 4) Fallback terakhir: cari berdasarkan nama asli (kalau ada)
-      if (!fileId && my.name) {
-        const hits = await withTimeout(driveFindByName(my.name), 8000);
-        if (hits && hits[0]?.id) fileId = hits[0].id;
-      }
-
-      if (fileId) {
-        const blob = await withTimeout(downloadViaDriveSyncOrFetch(fileId), 15000);
-        if (blob){
-          await saveBlobToIndexedDB(my.hash || null, my.hash ? `${my.hash}.pdf` : (my.name || '(tanpa-nama)'), blob, null);
-          if (my.hash) have.byHash.add(my.hash);
-          if (my.name) have.byName.add(my.name);
-        }
-      }
-    } catch {
-      // noop
-    } finally {
-      done += 1;
-      updateHydrateBanner(done, targets.length);
     }
   }
+
+  // Start workers
+  const workers = Array.from({ length: Math.min(CONCURRENCY, targets.length) }, () => downloadWorker());
+  
+  // Wait with timeout
+  const HYDRATE_TIMEOUT = 45000; // 45 seconds total
+  await Promise.race([
+    Promise.all(workers),
+    new Promise(resolve => setTimeout(resolve, HYDRATE_TIMEOUT))
+  ]);
+
+  finishHydrateBanner();
+  
+  // PERBAIKAN: Update UI after hydration
+  setTimeout(() => {
+    updateButtonsState();
+  }, 500);
 }
 
-
-  // ⚠️ FIX: panggil worker(), bukan pass referensi fungsi
-  const workers = Array.from(
-  { length: Math.min(CONCURRENCY, targets.length) },
-  () => worker()
-);
-
-// hard-deadline agar banner pasti selesai
-const DEADLINE_MS = 20000;
-await Promise.race([
-  Promise.all(workers),
-  new Promise(res => setTimeout(res, DEADLINE_MS))
-]);
-
-finishHydrateBanner();
-}
   window.ensureLocalBlobsReadyOrWarn = async function ensureLocalBlobsReadyOrWarn() {
   try {
     const a = await getAllPdfBuffersFromIndexedDB([]);
