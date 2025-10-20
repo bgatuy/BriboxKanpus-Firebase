@@ -5,7 +5,6 @@
   const STORAGE_KEY = 'monthlyReports';
   const LEGACY_KEYS = ['monthlyData', 'monthlyReports']; // untuk migrasi/kompat
 
-  // ===== STANDARDIZED STORAGE ACCESS =====
   const LS = {
     getItem(k){ return (window.AccountNS?.getItem?.(k)) ?? localStorage.getItem(k); },
     setItem(k,v){
@@ -208,51 +207,6 @@ document.addEventListener('DOMContentLoaded', function () {
   async function monthlyGetLocal() { return loadLocal(); }
   async function monthlySetLocal(arr) { saveLocal(arr || []); }
 
-  // ===== IMPROVED SYNC MECHANISM =====
-  let _syncInProgress = false;
-  const SYNC_COOLDOWN = 3000; // 3 detik cooldown
-
-  async function synchronizedCloudSync() {
-    if (_syncInProgress) {
-      console.log('[MonthlyForm] Sync already in progress, skipping');
-      return;
-    }
-
-    _syncInProgress = true;
-    try {
-      console.log('[MonthlyForm] Starting cloud sync...');
-      
-      if (!window.MonthlySync?.pull) {
-        console.warn('[MonthlyForm] MonthlySync.pull tidak tersedia');
-        return;
-      }
-
-      // Timeout protection
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Sync timeout')), 10000)
-      );
-
-      await Promise.race([
-        window.MonthlySync.pull(
-          monthlyGetLocal, 
-          monthlySetLocal, 
-          () => {
-            console.log('[MonthlyForm] Sync completed, refreshing count...');
-            refreshCountForMonth(bulan?.value || thisMonth());
-          }
-        ),
-        timeoutPromise
-      ]);
-
-    } catch (error) {
-      console.error('[MonthlyForm] Sync error:', error);
-      // Tetap refresh count dengan data lokal
-      refreshCountForMonth(bulan?.value || thisMonth());
-    } finally {
-      _syncInProgress = false;
-    }
-  }
-
   // Siapkan MonthlySync bila belum ada — gunakan envelope { data: [...] }
   (function ensureMonthlySync(){
     if (window.MonthlySync && window.MonthlySync.pull && window.MonthlySync.queuePush) return;
@@ -311,7 +265,7 @@ document.addEventListener('DOMContentLoaded', function () {
     window.MonthlySync = { fileName, pull, queuePush };
   })();
 
-  /* ================== IMPROVED INIT ================== */
+  /* ================== INIT ================== */
   (function init(){
     migrateOnce();
 
@@ -331,48 +285,42 @@ document.addEventListener('DOMContentLoaded', function () {
       refreshCountForMonth(bulan.value);
     });
 
-    // ===== IMPROVED CLOUD SYNC INIT =====
+    // tarik data cloud → merge ke lokal → refresh counter (lintas device)
     (async () => {
       try {
-        // Tunggu sebentar untuk pastikan DOM ready
-        await new Promise(resolve => setTimeout(resolve, 800));
-        await synchronizedCloudSync();
-      } catch (error) {
-        console.warn('[MonthlyForm] Initial sync failed:', error);
-        refreshCountForMonth(bulan?.value || thisMonth());
-      }
+        await window.MonthlySync?.pull?.(monthlyGetLocal, monthlySetLocal, () => {
+          refreshCountForMonth(bulan?.value || thisMonth());
+        });
+      } catch { /* silent */ }
     })();
 
-    // ===== IMPROVED STORAGE EVENT HANDLER =====
-    window.addEventListener('storage', async (e) => {
-      if (!e?.key) return;
-      
-      const raw = e.key;
-      const key = raw.includes('::') ? raw.split('::')[0] : raw;
+    // === sinkronisasi antar-tab: storage-change & tab fokus ===
+window.addEventListener('storage', async (e) => {
+  if (!e?.key) return;
+  const raw = e.key;
+  // jika pakai AccountNS yang menambah suffix ::uid, buang suffix-nya
+  const key = raw.includes('::') ? raw.split('::')[0] : raw;
 
-      if (key === STORAGE_KEY || key === '__monthly_broadcast') {
-        const m = bulan?.value || (new Date()).toISOString().slice(0,7);
-        try {
-          // Delay untuk hindari race condition
-          await new Promise(resolve => setTimeout(resolve, 500));
-          await synchronizedCloudSync();
-        } catch {}
-      }
-    });
+  if (key === STORAGE_KEY || key === '__monthly_broadcast') {
+    const m = bulan?.value || (new Date()).toISOString().slice(0,7);
+    try {
+      // PENTING: tarik dari cloud agar lokal tidak me-resurrect data lama
+      await window.MonthlySync?.pull?.(monthlyGetLocal, monthlySetLocal, () => {});
+    } catch {}
+    refreshCountForMonth(m);
+  }
+});
 
-    // ===== IMPROVED VISIBILITY CHANGE =====
-    document.addEventListener('visibilitychange', async () => {
-      if (document.hidden) return;
-      const m = bulan?.value || (new Date()).toISOString().slice(0,7);
-      try { 
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        await synchronizedCloudSync(); 
-      } catch {}
-      refreshCountForMonth(m);
-    });
+// Saat tab kembali fokus, pastikan data paling baru
+document.addEventListener('visibilitychange', async () => {
+  if (document.hidden) return;
+  const m = bulan?.value || (new Date()).toISOString().slice(0,7);
+  try { await window.MonthlySync?.pull?.(monthlyGetLocal, monthlySetLocal, () => {}); } catch {}
+  refreshCountForMonth(m);
+});
   })();
 
-  /* ================== IMPROVED SUBMIT ================== */
+  /* ================== SUBMIT ================== */
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();
 
@@ -431,14 +379,5 @@ document.addEventListener('DOMContentLoaded', function () {
     setLinkTargets(month);
     refreshCountForMonth(month);
     computeAutoFields();
-
-    // Trigger sync setelah save
-    setTimeout(async () => {
-      try {
-        await synchronizedCloudSync();
-      } catch (error) {
-        console.warn('[MonthlyForm] Post-save sync failed:', error);
-      }
-    }, 1000);
   });
 })();
