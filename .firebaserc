@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "briboxkanpus-10501"
-  }
+    "default": "briboxkanpus-b8635",
+    "briboxkanpus-b8635": "briboxkanpus-b8635"
+  },
+  "targets": {},
+  "etags": {}
 }
