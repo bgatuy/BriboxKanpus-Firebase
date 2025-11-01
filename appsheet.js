@@ -397,14 +397,14 @@ copyBtn?.addEventListener("click", async () => {
   try {
     if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
     else { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
-    copyBtn.textContent = "✔ Copied!";
-  } catch { copyBtn.textContent = "⚠ Copy gagal"; }
+    copyBtn.textContent = "Copied!";
+  } catch { copyBtn.textContent = "Copy gagal"; }
   setTimeout(() => (copyBtn.textContent = "Copy"), 1500);
 
   // 2) Validasi file & tanggal
   const file = window.currentFile;
-  if (!file) { showToast("⚠ Tidak ada file PDF yang dipilih.", 3500, "warn"); return; }
-  if (!currentTanggalRaw || currentTanggalRaw === "-") { showToast("⚠ Tanggal/Jam tidak terdeteksi.", 3500, "warn"); /* tetap lanjut simpan */ }
+  if (!file) { showToast("Tidak ada file PDF yang dipilih.", 3500, "warn"); return; }
+  if (!currentTanggalRaw || currentTanggalRaw === "-") { showToast("Tanggal/Jam tidak terdeteksi.", 3500, "warn"); /* tetap lanjut simpan */ }
 
   // 3) Hash isi file
   const contentHash = await sha256File(file);
@@ -427,7 +427,7 @@ copyBtn?.addEventListener("click", async () => {
     localStorage.setItem(catKey, JSON.stringify(catMap));
 
     uploadedViaHash = true;
-    showToast(deduped ? '☁️ Pakai file yang sudah ada di Drive' : '☁️ PDF diunggah ke Drive', 2500, 'success');
+    showToast(deduped ? 'Pakai file yang sudah ada di Drive' : 'PDF diunggah ke Drive', 2500, 'success');
   } catch (e) {
     console.warn('[AppSheet] Drive idempoten gagal:', e);
     // Fallback: antre di DriveQueue (akan auto-flush saat online/tersambung)
@@ -435,7 +435,7 @@ copyBtn?.addEventListener("click", async () => {
       const res = await window.DriveQueue?.enqueueOrUpload?.(file, contentHash);
       try { await window.DriveQueue?.flush?.(); } catch {}
       if (res?.uploaded) uploadedViaHash = true;
-      showToast(res?.uploaded ? '☁️ Tersimpan ke Drive' : '☁️ Dijadwalkan ke Drive', 2600, res?.uploaded ? 'success' : 'info');
+      showToast(res?.uploaded ? 'Tersimpan ke Drive' : 'Dijadwalkan ke Drive', 2600, res?.uploaded ? 'success' : 'info');
     } catch {}
   }
 
@@ -443,7 +443,7 @@ copyBtn?.addEventListener("click", async () => {
   const histKey = `pdfHistori::${uid}`;
   const histori = JSON.parse(localStorage.getItem(histKey) || '[]');
   const exists = histori.some(r => (r.contentHash && r.contentHash === contentHash) || (r.fileName === file.name && Number(r.size) === Number(file.size)));
-  if (exists) { showToast('ℹ Sudah ada di histori', 2600, 'info'); return; }
+  if (exists) { showToast('Sudah ada di histori', 2600, 'info'); return; }
 
   // 7) Tambah entri histori
   const rec = {
@@ -463,5 +463,5 @@ copyBtn?.addEventListener("click", async () => {
   try { await savePdfToIndexedDB(file, undefined, { contentHash }); }
   catch (e) { console.warn('IDB gagal:', e); }
 
-  showToast('✔ Tersimpan & disinkron.', 3000, 'success');
+  showToast('Tersimpan & disinkron.', 3000, 'success');
 });

@@ -402,15 +402,15 @@ async function uploadViaDriveQueue(file, contentHash) {
     if (window.DriveQueue?.enqueueOrUpload) {
       const { uploaded } = await DriveQueue.enqueueOrUpload(file, contentHash);
       if (uploaded) {
-        showToast('☁️ Tersimpan ke Google Drive', 2500, 'success');
+        showToast('Tersimpan ke Google Drive', 2500, 'success');
         return { ok: true, immediate: true };
       }
-      showToast('☁️ Dijadwalkan ke Google Drive (offline/tertunda)', 2800, 'info');
+      showToast('Dijadwalkan ke Google Drive (offline/tertunda)', 2800, 'info');
       return { ok: true, immediate: false };
     }
     // Fallback langsung via DriveSync (idempoten by hash)
     await DriveSync.savePdfByHash(file, contentHash);
-    showToast('☁️ Tersimpan ke Google Drive', 2500, 'success');
+    showToast('Tersimpan ke Google Drive', 2500, 'success');
     return { ok: true, immediate: true };
   } catch (e) {
     return { ok: false, reason: String(e?.message || e) };
@@ -491,16 +491,16 @@ async function tryUploadOriginalToDrive(file, contentHash /*, metaIgnored */) {
     try {
       const parentId = await driveEnsureRoot_gapi();
       const dup      = await driveFindByHash_gapi(parentId, contentHash);
-      if (dup?.id) { showToast('☁️ Sudah ada di Google Drive', 2200, 'info'); return true; }
+      if (dup?.id) { showToast('Sudah ada di Google Drive', 2200, 'info'); return true; }
 
       const id = await driveUploadPdfOriginal_gapi({ file, contentHash, parentId });
-      if (id) { showToast('☁️ Tersimpan ke Google Drive', 2500, 'success'); return true; }
+      if (id) { showToast('Tersimpan ke Google Drive', 2500, 'success'); return true; }
     } catch (e) {
       console.warn('gapi fallback error:', e);
     }
   }
 
-  showToast('ℹ Google Drive belum tersambung', 2500, 'info');
+  showToast('Google Drive belum tersambung', 2500, 'info');
   return false;
 }
 
@@ -674,11 +674,11 @@ copyBtn?.addEventListener("click", async () => {
         ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove();
       }
     } catch {}
-    if (copyBtn) { copyBtn.textContent = "✔ Copied!"; setTimeout(() => (copyBtn.textContent = "Copy"), 1500); }
+    if (copyBtn) { copyBtn.textContent = "Copied!"; setTimeout(() => (copyBtn.textContent = "Copy"), 1500); }
 
     // validasi file (pakai fallback window.currentFile)
     const file = (fileInput?.files?.[0]) || (window.currentFile || null);
-    if (!file) { showToast("⚠ Tidak ada file PDF yang dipilih.", 3500, "warn"); return; }
+    if (!file) { showToast("Tidak ada file PDF yang dipilih.", 3500, "warn"); return; }
 
     // hash
     let contentHash;
@@ -708,7 +708,7 @@ copyBtn?.addEventListener("click", async () => {
       } else {
         const ok = await (window.DriveSync?.tryResume?.() || Promise.resolve(false));
         if (!ok && !window.DriveSync?.isLogged?.()) {
-          showToast('ℹ Klik "Connect Google Drive" untuk menyalakan sinkronisasi.', 3500, 'info');
+          showToast('Klik "Connect Google Drive" untuk menyalakan sinkronisasi.', 3500, 'info');
         } else {
           // Upload idempoten: /Bribox Kanpus/pdfs/<sha256>.pdf
           const { fileId, deduped } = await DriveSync.savePdfByHash(file, contentHash);
@@ -722,7 +722,7 @@ copyBtn?.addEventListener("click", async () => {
           localStorage.setItem(catKey, JSON.stringify(catMap));
 
           uploadedViaHash = true; // sukses lewat jalur idempoten
-          showToast(deduped ? '☁️ Pakai file yang sudah ada di Drive' : '☁️ PDF diunggah ke Drive', 2500, 'success');
+          showToast(deduped ? 'Pakai file yang sudah ada di Drive' : 'PDF diunggah ke Drive', 2500, 'success');
         }
       }
     } catch (e) {
@@ -736,7 +736,7 @@ copyBtn?.addEventListener("click", async () => {
     if (exists) {
       // tetap coba upload (DriveQueue akan dedupe)
       try { await tryUploadOriginalToDrive(file, contentHash); } catch {}
-      showToast("ℹ Sudah ada di histori", 3000, "info");
+      showToast("Sudah ada di histori", 3000, "info");
       return;
     }
 
@@ -802,14 +802,14 @@ copyBtn?.addEventListener("click", async () => {
     const [idbResult] = await Promise.all([idbPromise, drivePromise]);
 
     if (idbResult === null) {
-      showToast("⚠ Histori disimpan. File PDF asli gagal disimpan lokal (coba ulang).", 5000);
+      showToast("Histori disimpan. File PDF asli gagal disimpan lokal (coba ulang).", 5000);
     } else {
-      showToast("✔ Berhasil disimpan ke histori", 3000);
+      showToast("Berhasil disimpan ke histori", 3000);
     }
 
   } catch (err) {
     console.error("Copy handler error:", err);
-    showToast(`❌ Error: ${err?.message || err}`, 4500, "warn");
+    showToast(`Error: ${err?.message || err}`, 4500, "warn");
   }
 });
 

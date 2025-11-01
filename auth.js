@@ -216,6 +216,8 @@
           ? `<img src="${a.picture}" alt="" style="width:22px;height:22px;border-radius:50%;object-fit:cover">`
           : '👤';
         btn.innerHTML = `${pic} <span style="margin-left:8px">${a.name || 'Akun'}</span>`;
+        // override to avoid corrupt fallback glyphs when picture is empty
+        btn.innerHTML = `${a.picture ? `<img src="${a.picture}" alt="" style="width:22px;height:22px;border-radius:50%;object-fit:cover">` : ''} <span style="margin-left:8px">${a.name || 'Akun'}</span>`;
         btn.title = a.email || 'Akun';
         btn.onclick = (e) => { e.preventDefault(); Auth.logout(); };
         btn.style.display = 'inline-flex';
