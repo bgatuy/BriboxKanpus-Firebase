@@ -988,6 +988,22 @@ btnGenCombo?.addEventListener('click', async (e) => {
   e.preventDefault();
   const tanggalInput = inputTanggalSerah?.value || '';
   if (!tanggalInput) { alert('Isi Tanggal Serah Terima dulu.'); return; }
+
+  // Jika tidak ada file yang dipilih, tetap izinkan generate CM saja
+  const anySelected = !!document.querySelector('#historiBody input.pick:checked');
+  if (!anySelected) {
+    try {
+      showSpinner();
+      const b = await buildFormCMBlob();
+      await downloadBlob(b, 'Form Tanda Terima CM.pdf');
+      try { if (typeof window.saveGeneratedPdfSilent === 'function') await window.saveGeneratedPdfSilent(b,'Form Tanda Terima CM'); } catch {}
+    } catch (err) {
+      console.error(err); alert('Gagal membuat FORM CM.');
+    } finally { hideSpinner(); }
+    return;
+  }
+
+  // Ada file terpilih: butuh blob lokal siap (akan auto-hydrate dari Drive)
   if (!(await window.ensureLocalBlobsReadyOrWarn())) return;
   try { showSpinner(); await generateCombinedSelected(); }
   catch (err) { console.error(err); alert('Gagal membuat PDF gabungan.'); }
