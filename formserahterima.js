@@ -884,10 +884,11 @@ function manifestName(){ return `.bribox_histori__${getUidOrAnon()}.json`; }
 function updateButtonsState() {
   const iso = inputTanggalSerah?.value || '';
 
-  // aktif hanya kalau tanggal terisi
-  if (btnGenerate)   btnGenerate.disabled   = !iso;
-  if (btnGenCombo)   btnGenCombo.disabled   = !iso;
-  if (btnGenCMOnly)  btnGenCMOnly.disabled  = !iso;
+  // Jangan disable tombol utama; biarkan handler yang validasi
+  // agar pengguna tetap mendapat pesan saat tanggal belum diisi
+  if (btnGenerate)   btnGenerate.disabled   = false;
+  if (btnGenCombo)   btnGenCombo.disabled   = false;
+  if (btnGenCMOnly)  btnGenCMOnly.disabled  = false;
 
   // "PDF Terpilih" wajib: tanggal + minimal satu ceklist
   if (btnGenFilesOnly) {
