@@ -268,3 +268,67 @@
 
   document.addEventListener('DOMContentLoaded', ()=> window.AccountStore.loadHistori());
 })();
+
+/* ===========================
+ *  UI Sanitizer (runtime fix)
+ *  - Normalizes corrupted labels/text caused by encoding glitches
+ *  - Keeps behavior unchanged; only updates visible strings
+ * =========================== */
+(function(){
+  'use strict';
+  function setText(el, txt){ try{ if (el) el.textContent = txt; }catch{} }
+  function normalizeTitle(){
+    try{
+      const h1 = document.querySelector('.dashboard-header h1');
+      const page = (document.body.getAttribute('data-page')||'').toLowerCase();
+      let suffix = '';
+      if (page.includes('trackmate')) suffix = 'Trackmate';
+      else if (page.includes('appsheet')) suffix = 'AppSheet';
+      else if (page.includes('serah')) suffix = 'Form Serah Terima';
+      else if (page.includes('merge')) suffix = 'Merge';
+      if (suffix) document.title = `BRIBOX KANPUS - ${suffix}`;
+      if (h1 && !h1.textContent.trim()) setText(h1, suffix);
+    } catch {}
+  }
+  function normalizeNav(){
+    try{
+      const nav = document.querySelector('nav'); if (!nav) return;
+      const links = nav.querySelectorAll('a[href]');
+      links.forEach(a => {
+        const href = (a.getAttribute('href')||'').toLowerCase();
+        if (href.includes('trackmate')) setText(a, 'Trackmate');
+        else if (href.includes('appsheet')) setText(a, 'AppSheet');
+        else if (href.includes('formserahterima')) setText(a, 'Form Serah Terima');
+      });
+      const btnGrp = nav.querySelector('button.nav-group');
+      setText(btnGrp, 'Monthly Report');
+    } catch {}
+  }
+  function normalizeToggles(){
+    try{
+      const sideBtn = document.querySelector('.sidebar-toggle-btn');
+      if (sideBtn && (!sideBtn.textContent || sideBtn.textContent.length < 2)) setText(sideBtn, 'Menu');
+      const darkBtn = document.getElementById('toggleModeBtn');
+      const isDark = document.body.classList.contains('dark-mode');
+      if (darkBtn) setText(darkBtn, isDark ? 'Light' : 'Dark');
+    } catch {}
+  }
+  function hookDarkBtn(){
+    try{
+      const darkBtn = document.getElementById('toggleModeBtn');
+      if (!darkBtn) return;
+      const orig = darkBtn.onclick;
+      darkBtn.onclick = function(e){
+        if (orig) try{ orig.call(this, e); }catch{}
+        const isDark = document.body.classList.contains('dark-mode');
+        setText(darkBtn, isDark ? 'Light' : 'Dark');
+      };
+    } catch {}
+  }
+  document.addEventListener('DOMContentLoaded', () => {
+    normalizeTitle();
+    normalizeNav();
+    normalizeToggles();
+    hookDarkBtn();
+  });
+})();

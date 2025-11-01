@@ -96,6 +96,8 @@
     catch (e) { console.warn('[DriveSync] userinfo error:', e); cachedProfile = null; }
     setAuthUI(true, cachedProfile);
     await ensureRootFolder();
+    // Trigger queue flush if available so pending uploads proceed immediately
+    try { window.DriveQueue?.flush?.(); } catch {}
   }
 
   async function signIn() {
@@ -521,6 +523,15 @@
     // helper akses token (compat lama)
     getAccessToken: () => ACCESS_TOKEN,
     _getAccessToken: () => ACCESS_TOKEN,
+
+    // user helper (bridge ke Auth agar AccountNS bisa baca UID konsisten)
+    getUser: () => {
+      try {
+        if (window.Auth && typeof Auth.currentUser === 'function') return Auth.currentUser();
+        const a = window.Auth?.get?.();
+        return a ? { uid: a.uid, email: a.email, name: a.name, picture: a.picture } : null;
+      } catch { return null; }
+    },
 
     onAuthStateChanged: (cb) => { if (typeof cb === 'function') _authListeners.add(cb); },
 
