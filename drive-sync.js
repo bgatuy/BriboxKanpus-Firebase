@@ -359,6 +359,15 @@
     return r.json();
   }
 
+  // Wrapper: resumable upload to specific parent
+  async function uploadFileResumable(name, file, parentId, mime = 'application/pdf', metaExtra) {
+    const token = DS._getAccessToken?.() || DS.getAccessToken?.();
+    if (!token) throw new Error('Belum login Google Drive.');
+    const metadata = Object.assign({ name, parents: [parentId], mimeType: mime }, metaExtra || {});
+    const created = await driveResumableUpload(file, metadata, token);
+    return created; // { id, name, ... }
+  }
+
   async function fetchPdfBlob(fileId) {
     const r = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
       headers: authHeaders()
@@ -548,7 +557,7 @@
     // folders & files
     ensureFolder: ensureRootFolder,
     ensureSub, findFileByName,
-    savePdfByHash, getFileIdByHash, fetchPdfBlob, uploadFileMultipart,
+    savePdfByHash, getFileIdByHash, fetchPdfBlob, uploadFileMultipart, uploadFileResumable,
 
     // JSON mirror
     getJson, putJson,

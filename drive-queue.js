@@ -112,9 +112,9 @@
       }
     };
 
-    // Gunakan API terbaru drive-sync.js
-    if (typeof DriveSync.uploadFileMultipart === 'function') {
-      return await DriveSync.uploadFileMultipart(name, item.file, rootId, mime, metaExtra);
+    // Gunakan resumable upload agar lebih tahan CORS/ukuran besar
+    if (typeof DriveSync.uploadFileResumable === 'function') {
+      return await DriveSync.uploadFileResumable(name, item.file, rootId, mime, metaExtra);
     }
 
     // Fallback (sangat jarang kepakai): kalau tidak ada uploadFileMultipart tapi ada savePdfByHash
