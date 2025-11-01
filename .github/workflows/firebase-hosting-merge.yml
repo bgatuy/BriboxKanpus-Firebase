@@ -24,4 +24,4 @@ jobs:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BRIBOXKANPUS_10501 }}
           channelId: live
-          projectId: briboxkanpus-10501   # <- pakai project ID kamu (lihat di Firebase console)
+          projectId: BRIBOX KANPUS   # <- pakai project ID kamu (lihat di Firebase console)
